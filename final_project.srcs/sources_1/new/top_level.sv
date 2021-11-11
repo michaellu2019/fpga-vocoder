@@ -241,7 +241,7 @@ endmodule
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Visualize frequency spectrum
+// Visualize frequency spectrum for audio data
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -268,18 +268,19 @@ module visualizer(
     logic       hsync;
     logic [11:0] rgb;
     
-    //draw bargraphs from raw_amp_out extracted (scale with switches)                
+    // display amplitude vs. frequency for raw audio data (raw_amp_out) and shifted data (shifted_amp_out)         
     always_ff @(posedge clk_in)begin
         draw_addr <= hcount/2;
         if (vcount < MAX_VCOUNT/2 && (raw_amp_out >> amp_scale) >= MAX_VCOUNT/2 - vcount) begin
-            rgb <= 12'b0000_0101_1100;
+            rgb <= 12'b0000_0110_1100;
         end else if (vcount >= MAX_VCOUNT/2 && (shifted_amp_out >> amp_scale) >= MAX_VCOUNT - vcount) begin
-            rgb <= 12'b1100_0000_0101;
+            rgb <= 12'b1100_0000_0110;
         end else begin
             rgb <= 12'b0000_0000_0000;
         end
     end                 
         
+    // VGA black magic
     xvga myyvga (.vclock_in(clk_in),.hcount_out(hcount),  
                 .vcount_out(vcount),.vsync_out(vsync), .hsync_out(hsync),
                  .blank_out(blanking));               
