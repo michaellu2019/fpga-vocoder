@@ -21,6 +21,9 @@ module top_level(   input clk_100mhz,
     );  
     parameter SAMPLE_COUNT = 4164; //2082;//gets approximately (will generate audio at approx 48 kHz sample rate.
     
+    logic rst_in;
+    assign rst_in = btnd;
+    
     logic [15:0] sample_counter;
     logic [11:0] adc_data;
     logic [11:0] sampled_adc_data;
@@ -185,19 +188,40 @@ module top_level(   input clk_100mhz,
     
     logic [9:0] addr_count;
     logic [9:0] draw_addr;
+    logic [17:0] spectrogram_count;
+    logic [17:0] spectrogram_draw_addr;
+    
+    logic spectrogram_wea;
+    logic [15:0] spectrogram_raw_amp_in;
     
     logic [31:0] raw_amp_out;
     logic [31:0] shifted_amp_out;
+    logic [15:0] spectrogram_raw_amp_out;
     
-    always_ff @(posedge clk_100mhz)begin
-        if (sqrt_valid)begin
-            if (sqrt_last)begin
+    parameter SPECTROGRAM_WIDTH = 512;
+    parameter SPECTROGRAM_HEIGHT = 512;
+    
+//    assign spectrogram_wea = sqrt_valid && addr_count <= 'd512;
+    always_ff @(posedge clk_100mhz) begin
+        if (rst_in) begin
+            addr_count <= 0;
+            spectrogram_count <= 0;
+            spectrogram_wea <= 0;
+            spectrogram_raw_amp_in <= 0;
+        end else if (!rst_in && sqrt_valid)begin
+            spectrogram_wea <= addr_count <= SPECTROGRAM_HEIGHT;
+            if (sqrt_last) begin
                 addr_count <= 'd1023; //allign
             end else begin
-                addr_count <= addr_count + 1'b1;
+                addr_count <= addr_count + 1;
+                
+                if (addr_count <= SPECTROGRAM_HEIGHT) begin
+                    spectrogram_raw_amp_in <= sqrt_data[23:8];
+//                    spectrogram_raw_amp_in <= 16'd65000;
+                    spectrogram_count <= spectrogram_count + 1;
+                end
             end
         end
-    
     end 
          
     //Two Port BRAM: The FFT pipeline files values inot this and the VGA side of things
@@ -232,10 +256,18 @@ module top_level(   input clk_100mhz,
                     .addrb(draw_addr), .clkb(pixel_clk), .doutb(shifted_amp_out),
                     .web(1'b0), .enb(1'b1));     
                     
+    spectrogram_bram msb_raw (.addra(spectrogram_count+3), .clka(clk_100mhz), .dina(spectrogram_raw_amp_in),
+                    .douta(), .ena(1'b1), .wea(spectrogram_wea),.dinb(0),
+                    .addrb(spectrogram_draw_addr), .clkb(pixel_clk), .doutb(spectrogram_raw_amp_out),
+                    .web(1'b0), .enb(1'b1));
                     
-    visualizer viz (.clk_in(pixel_clk), .raw_amp_out(raw_amp_out), .shifted_amp_out(shifted_amp_out), 
-                    .amp_scale(sw[3:0]), .pwm_val(pwm_val), .draw_addr(draw_addr), .vga_r(vga_r), .vga_b(vga_b),
-                    .vga_g(vga_g), .vga_hs(vga_hs), .vga_vs(vga_vs), .aud_pwm(aud_pwm));    
+    visualizer viz (.clk_in(pixel_clk), .rst_in(btnd), 
+                    .raw_amp_out(raw_amp_out), .shifted_amp_out(shifted_amp_out),  
+                    .spectrogram_raw_amp_out(spectrogram_raw_amp_out),
+                    .amp_scale(sw[3:0]), .visualize_mode(sw[15:14]), .pwm_val(pwm_val), 
+                    .draw_addr(draw_addr), .spectrogram_draw_addr(spectrogram_draw_addr),
+                    .vga_r(vga_r), .vga_b(vga_b), .vga_g(vga_g), .vga_hs(vga_hs), .vga_vs(vga_vs), 
+                    .aud_pwm(aud_pwm));    
     
 endmodule
 
@@ -247,11 +279,15 @@ endmodule
 
 module visualizer(
     input wire clk_in,
+    input wire rst_in,
     input wire [31:0] raw_amp_out,
     input wire [31:0] shifted_amp_out,
+    input wire [16:0] spectrogram_raw_amp_out,
     input wire [3:0] amp_scale,
+    input wire [1:0] visualize_mode,
     input wire pwm_val,
     output logic [9:0] draw_addr,
+    output logic [17:0] spectrogram_draw_addr,
     output logic[3:0] vga_r,
     output logic[3:0] vga_b,
     output logic[3:0] vga_g,
@@ -259,6 +295,7 @@ module visualizer(
     output logic vga_vs,
     output logic aud_pwm
 );
+    parameter MAX_HCOUNT = 1024;
     parameter MAX_VCOUNT = 768;
     
     logic blanking;
@@ -268,21 +305,79 @@ module visualizer(
     logic       hsync;
     logic [11:0] rgb;
     
+    parameter SPECTROGRAM_WIDTH = 512;
+    parameter SPECTROGRAM_HEIGHT = 512;
+    parameter SPECTROGRAM_AMP_SCALE = 10;
+    
     // display amplitude vs. frequency for raw audio data (raw_amp_out) and shifted data (shifted_amp_out)         
     always_ff @(posedge clk_in)begin
-        draw_addr <= hcount/2;
-        if (vcount < MAX_VCOUNT/2 && (raw_amp_out >> amp_scale) >= MAX_VCOUNT/2 - vcount) begin
-            rgb <= 12'b0000_0110_1100;
-        end else if (vcount >= MAX_VCOUNT/2 && (shifted_amp_out >> amp_scale) >= MAX_VCOUNT - vcount) begin
-            rgb <= 12'b1100_0000_0110;
-        end else begin
-            rgb <= 12'b0000_0000_0000;
+        if (visualize_mode == 10'd0) begin
+            draw_addr <= hcount >> 1;
+            if (vcount < MAX_VCOUNT/2 && (raw_amp_out >> amp_scale) >= MAX_VCOUNT/2 - vcount) begin
+                // draw top blue bar graph of unshifted frequencies
+                rgb <= (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 6 ? 12'b1111_0000_0000 :
+                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 5 ? 12'b1111_0111_0000 :
+                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 4 ? 12'b1111_1111_0000 :
+                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 3 ? 12'b0000_1111_0000 :
+                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 2 ? 12'b0000_0000_1111 :
+                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 1 ? 12'b0111_0000_1111 :
+                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 0 ? 12'b1111_0000_1111 :
+                       12'b000_0000_000;
+//                rgb <= 12'b0000_0110_1100;
+            end else if (vcount >= MAX_VCOUNT/2 && (shifted_amp_out >> amp_scale) >= MAX_VCOUNT - vcount) begin
+                // draw bottom red bar graph of shifted frequencies
+                rgb <= (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 6 ? 12'b1111_0000_0000 :
+                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 5 ? 12'b1111_0111_0000 :
+                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 4 ? 12'b1111_1111_0000 :
+                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 3 ? 12'b0000_1111_0000 :
+                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 2 ? 12'b0000_0000_1111 :
+                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 1 ? 12'b0111_0000_1111 :
+                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 0 ? 12'b1111_0000_1111 :
+                       12'b000_0000_000;
+//                rgb <= 12'b1100_0000_0110;
+            end else begin
+                rgb <= 12'b0000_0000_0000;
+//                rgb <= 12'b1111_1111_1111;
+            end
+        end else if (visualize_mode == 10'd1) begin 
+            spectrogram_draw_addr <= hcount * (SPECTROGRAM_WIDTH + 1) - vcount;
+            if (hcount < SPECTROGRAM_WIDTH && vcount < SPECTROGRAM_HEIGHT) begin
+                rgb <= (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 6 ? 12'b1111_0000_0000 :
+                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 5 ? 12'b1111_0111_0000 :
+                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 4 ? 12'b1111_1111_0000 :
+                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 3 ? 12'b0000_1111_0000 :
+                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 2 ? 12'b0000_0000_1111 :
+                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 1 ? 12'b0111_0000_1111 :
+                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 0 ? 12'b1111_0000_1111 :
+                       12'b000_0000_000;
+            end else begin
+                rgb <= 12'b1111_1111_1111;
+            end
+            
+//            draw_addr <= (MAX_VCOUNT - vcount) >> 1;
+//            if ((raw_amp_out >> amp_scale) >= hcount) begin
+//                // draw spectrogram
+//                // use a counter to shift the graph output along the horizontal
+////                rgb <= 12'b0000_0110_1100 << (raw_amp_out >> 30);
+////                rgb <= {8'b0000_0010, 4'b0001 << (raw_amp_out >> 10'd27)};
+//                rgb <= (raw_amp_out >> amp_scale >> 6) >= hcount ? 12'b1111_0000_0000 :
+//                       (raw_amp_out >> amp_scale >> 5) >= hcount ? 12'b1111_0111_0000 :
+//                       (raw_amp_out >> amp_scale >> 4) >= hcount ? 12'b1111_1111_0000 :
+//                       (raw_amp_out >> amp_scale >> 3) >= hcount ? 12'b0000_1111_0000 :
+//                       (raw_amp_out >> amp_scale >> 2) >= hcount ? 12'b0000_0000_1111 :
+//                       (raw_amp_out >> amp_scale >> 1) >= hcount ? 12'b0111_0000_1111 :
+//                       (raw_amp_out >> amp_scale >> 0) >= hcount ? 12'b1111_0000_1111 :
+//                       12'b000_0110_000;
+//            end else begin
+////                rgb <= 12'b0000_0000_0000;
+//                rgb <= 12'b1111_1111_1111;
+//            end
         end
     end                 
         
     // VGA black magic
-    xvga myyvga (.vclock_in(clk_in),.hcount_out(hcount),  
-                .vcount_out(vcount),.vsync_out(vsync), .hsync_out(hsync),
+    xvga myyvga (.vclock_in(clk_in), .rst_in(rst_in), .visualize_mode(visualize_mode), .hcount_out(hcount),  
+                 .vcount_out(vcount), .vsync_out(vsync), .hsync_out(hsync),
                  .blank_out(blanking));               
                         
     assign vga_r = ~blanking ? rgb[11:8]: 0;
@@ -643,53 +738,56 @@ endmodule
 // other screen resolutions
 ////////////////////////////////////////////////////////////////////////////////
 
-module xvga(input vclock_in,
+module xvga(input wire vclock_in,
+            input wire rst_in,
+            input wire [1:0] visualize_mode,
             output logic [10:0] hcount_out,    // pixel number on current line
             output logic [9:0] vcount_out,     // line number
             output logic vsync_out, hsync_out,
             output logic blank_out);
 
-   parameter DISPLAY_WIDTH  = 1024;      // display width
-   parameter DISPLAY_HEIGHT = 768;       // number of lines
+    parameter DISPLAY_WIDTH  = 1024;      // display width
+    parameter DISPLAY_HEIGHT = 768;       // number of lines
 
-   parameter  H_FP = 24;                 // horizontal front porch
-   parameter  H_SYNC_PULSE = 136;        // horizontal sync
-   parameter  H_BP = 160;                // horizontal back porch
+    parameter  H_FP = 24;                 // horizontal front porch
+    parameter  H_SYNC_PULSE = 136;        // horizontal sync
+    parameter  H_BP = 160;                // horizontal back porch
 
-   parameter  V_FP = 3;                  // vertical front porch
-   parameter  V_SYNC_PULSE = 6;          // vertical sync 
-   parameter  V_BP = 29;                 // vertical back porch
+    parameter  V_FP = 3;                  // vertical front porch
+    parameter  V_SYNC_PULSE = 6;          // vertical sync 
+    parameter  V_BP = 29;                 // vertical back porch
 
-   // horizontal: 1344 pixels total
-   // display 1024 pixels per line
-   logic hblank,vblank;
-   logic hsyncon,hsyncoff,hreset,hblankon;
-   assign hblankon = (hcount_out == (DISPLAY_WIDTH -1));    
-   assign hsyncon = (hcount_out == (DISPLAY_WIDTH + H_FP - 1));  //1047
-   assign hsyncoff = (hcount_out == (DISPLAY_WIDTH + H_FP + H_SYNC_PULSE - 1));  // 1183
-   assign hreset = (hcount_out == (DISPLAY_WIDTH + H_FP + H_SYNC_PULSE + H_BP - 1));  //1343
+    // horizontal: 1344 pixels total
+    // display 1024 pixels per line
+    logic hblank,vblank;
+    logic hsyncon,hsyncoff,hreset,hblankon;
+    assign hblankon = (hcount_out == (DISPLAY_WIDTH -1));    
+    assign hsyncon = (hcount_out == (DISPLAY_WIDTH + H_FP - 1));  //1047
+    assign hsyncoff = (hcount_out == (DISPLAY_WIDTH + H_FP + H_SYNC_PULSE - 1));  // 1183
+    assign hreset = (hcount_out == (DISPLAY_WIDTH + H_FP + H_SYNC_PULSE + H_BP - 1));  //1343
 
-   // vertical: 806 lines total
-   // display 768 lines
-   logic vsyncon,vsyncoff,vreset,vblankon;
-   assign vblankon = hreset & (vcount_out == (DISPLAY_HEIGHT - 1));   // 767 
-   assign vsyncon = hreset & (vcount_out == (DISPLAY_HEIGHT + V_FP - 1));  // 771
-   assign vsyncoff = hreset & (vcount_out == (DISPLAY_HEIGHT + V_FP + V_SYNC_PULSE - 1));  // 777
-   assign vreset = hreset & (vcount_out == (DISPLAY_HEIGHT + V_FP + V_SYNC_PULSE + V_BP - 1)); // 805
+    // vertical: 806 lines total
+    // display 768 lines
+    logic vsyncon,vsyncoff,vreset,vblankon;
+    assign vblankon = hreset & (vcount_out == (DISPLAY_HEIGHT - 1));   // 767 
+    assign vsyncon = hreset & (vcount_out == (DISPLAY_HEIGHT + V_FP - 1));  // 771
+    assign vsyncoff = hreset & (vcount_out == (DISPLAY_HEIGHT + V_FP + V_SYNC_PULSE - 1));  // 777
+    assign vreset = hreset & (vcount_out == (DISPLAY_HEIGHT + V_FP + V_SYNC_PULSE + V_BP - 1)); // 805
 
-   // sync and blanking
-   logic next_hblank,next_vblank;
-   assign next_hblank = hreset ? 0 : hblankon ? 1 : hblank;
-   assign next_vblank = vreset ? 0 : vblankon ? 1 : vblank;
-   always_ff @(posedge vclock_in) begin
-      hcount_out <= hreset ? 0 : hcount_out + 1;
-      hblank <= next_hblank;
-      hsync_out <= hsyncon ? 0 : hsyncoff ? 1 : hsync_out;  // active low
+    // sync and blanking
+    logic next_hblank,next_vblank;
+    assign next_hblank = hreset ? 0 : hblankon ? 1 : hblank;
+    assign next_vblank = vreset ? 0 : vblankon ? 1 : vblank;
+   
+    always_ff @(posedge vclock_in) begin
+        hcount_out <= hreset ? 0 : hcount_out + 1;
+        hblank <= next_hblank;
+        hsync_out <= hsyncon ? 0 : hsyncoff ? 1 : hsync_out;  // active low 
 
-      vcount_out <= hreset ? (vreset ? 0 : vcount_out + 1) : vcount_out;
-      vblank <= next_vblank;
-      vsync_out <= vsyncon ? 0 : vsyncoff ? 1 : vsync_out;  // active low
+        vcount_out <= hreset ? (vreset ? 0 : vcount_out + 1) : vcount_out;
+        vblank <= next_vblank;
+        vsync_out <= vsyncon ? 0 : vsyncoff ? 1 : vsync_out;  // active low
 
-      blank_out <= next_vblank | (next_hblank & ~hreset);
-   end
+        blank_out <= next_vblank | (next_hblank & ~hreset);
+    end
 endmodule
