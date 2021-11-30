@@ -38,7 +38,7 @@ module fwd_fft(
                     .s_axis_config_tvalid(0),
                     .s_axis_config_tready(),
                     .m_axis_data_tdata(fft_out_data), .m_axis_data_tvalid(fft_out_valid),
-                    .m_axis_data_tlast(fft_out_last), .m_axis_data_tready(fft_out_ready));
+                    .m_axis_data_tlast(fft_out_last), .m_axis_data_tready(1));
     /*
     // for visualization 
 
