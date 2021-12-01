@@ -12,6 +12,7 @@ module visualizer(
     input wire [31:0] raw_amp_out,
     input wire [31:0] shifted_amp_out,
     input wire [16:0] spectrogram_raw_amp_out,
+    input wire [9:0] nat_freq,
     input wire [3:0] amp_scale,
     input wire [1:0] visualize_mode,
     input wire pwm_val,
@@ -40,32 +41,40 @@ module visualizer(
     
     // display amplitude vs. frequency for raw audio data (raw_amp_out) and shifted data (shifted_amp_out)         
     always_ff @(posedge clk_in)begin
-        if (visualize_mode == 10'd0) begin
+        if (visualize_mode == 'd0) begin
             draw_addr <= hcount >> 1;
             if (vcount < MAX_VCOUNT/2 && (raw_amp_out >> amp_scale) >= MAX_VCOUNT/2 - vcount) begin
                 // draw top blue bar graph of unshifted frequencies
-                rgb <= (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 6 ? 12'b1111_0000_0000 :
-                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 5 ? 12'b1111_0111_0000 :
-                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 4 ? 12'b1111_1111_0000 :
-                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 3 ? 12'b0000_1111_0000 :
-                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 2 ? 12'b0000_0000_1111 :
-                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 1 ? 12'b0111_0000_1111 :
-                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 0 ? 12'b1111_0000_1111 :
-                       12'b000_0000_000;
+                if (draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
+                    rgb <= 12'hFFF;
+                end else begin
+                    rgb <= (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 6 ? 12'b1111_0000_0000 :
+                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 5 ? 12'b1111_0111_0000 :
+                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 4 ? 12'b1111_1111_0000 :
+                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 3 ? 12'b0000_1111_0000 :
+                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 2 ? 12'b0000_0000_1111 :
+                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 1 ? 12'b0111_0000_1111 :
+                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 0 ? 12'b1111_0000_1111 :
+                           12'b0000_0000_0000;
+                 end
             end else if (vcount >= MAX_VCOUNT/2 && (shifted_amp_out >> amp_scale) >= MAX_VCOUNT - vcount) begin
                 // draw bottom red bar graph of shifted frequencies
-                rgb <= (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 6 ? 12'b1111_0000_0000 :
+                if (draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
+                    rgb <= 12'hFFF;
+                end else begin
+                    rgb <= (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 6 ? 12'b1111_0000_0000 :
                        (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 5 ? 12'b1111_0111_0000 :
                        (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 4 ? 12'b1111_1111_0000 :
                        (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 3 ? 12'b0000_1111_0000 :
                        (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 2 ? 12'b0000_0000_1111 :
                        (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 1 ? 12'b0111_0000_1111 :
                        (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 0 ? 12'b1111_0000_1111 :
-                       12'b000_0000_000;
+                       12'b0000_0000_0000;
+                 end
             end else begin
                 rgb <= 12'b0000_0000_0000;
             end
-        end else if (visualize_mode == 10'd1) begin 
+        end else if (visualize_mode == 'd1) begin 
             // draw the spectrogram
             // access the correct memory location in bram for the frequency
             spectrogram_draw_addr <= hcount * (SPECTROGRAM_WIDTH + 1) - vcount;
@@ -77,9 +86,28 @@ module visualizer(
                        (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 2 ? 12'b0000_0000_1111 :
                        (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 1 ? 12'b0111_0000_1111 :
                        (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 0 ? 12'b1111_0000_1111 :
-                       12'b000_0000_000;
+                       12'b0000_0000_0000;
             end else begin
                 rgb <= 12'b1111_1111_1111;
+            end
+        end else if (visualize_mode == 'd2) begin
+            draw_addr <= hcount;
+            if (raw_amp_out >> amp_scale >= MAX_VCOUNT-vcount) begin
+                if (draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
+                    rgb <= 12'hFFF;
+                end else begin
+//                    rgb <= (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 6 ? 12'b1111_0000_0000 :
+//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 5 ? 12'b1111_0111_0000 :
+//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 4 ? 12'b1111_1111_0000 :
+//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 3 ? 12'b0000_1111_0000 :
+//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 2 ? 12'b0000_0000_1111 :
+//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 1 ? 12'b0111_0000_1111 :
+//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 0 ? 12'b1111_0000_1111 :
+//                       12'b0000_0000_0000;
+                    rgb <= 12'b1100_0000_0110;
+                end
+            end else begin
+                rgb <= 12'b0000_0000_0000;
             end
         end
     end                 

@@ -201,7 +201,7 @@ module top_level(   input clk_100mhz,
         end else if (!rst_in && sqrt_valid)begin
             spectrogram_wea <= addr_count <= SPECTROGRAM_HEIGHT;
             if (sqrt_last) begin
-                addr_count <= 'd1023; //allign
+                addr_count <= 'd0; //allign
             end else begin
                 addr_count <= addr_count + 1;
                 
@@ -236,28 +236,117 @@ module top_level(   input clk_100mhz,
     //PORT B OPTIONS:
     //Should mimic Port A (and should auto-inheret most anyways)
     //leave other tabs as is. the summary tab should report one 36K BRAM being used
-    value_bram mvb_raw (.addra(addr_count+3), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
+    value_bram mvb_raw (.addra(addr_count), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
                     .douta(), .ena(1'b1), .wea(sqrt_valid),.dinb(0),
                     .addrb(draw_addr), .clkb(pixel_clk), .doutb(raw_amp_out),
                     .web(1'b0), .enb(1'b1));    
                     
-    value_bram mvb_shifted (.addra(addr_count+3), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
+    value_bram mvb_shifted (.addra(addr_count), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
                     .douta(), .ena(1'b1), .wea(sqrt_valid),.dinb(0),
                     .addrb(draw_addr), .clkb(pixel_clk), .doutb(shifted_amp_out),
                     .web(1'b0), .enb(1'b1));     
                     
-    spectrogram_bram msb_raw (.addra(spectrogram_count+3), .clka(clk_100mhz), .dina(spectrogram_raw_amp_in),
+    spectrogram_bram msb_raw (.addra(spectrogram_count), .clka(clk_100mhz), .dina(spectrogram_raw_amp_in),
                     .douta(), .ena(1'b1), .wea(spectrogram_wea),.dinb(0),
                     .addrb(spectrogram_draw_addr), .clkb(pixel_clk), .doutb(spectrogram_raw_amp_out),
                     .web(1'b0), .enb(1'b1));
                     
     visualizer viz (.clk_in(pixel_clk), .rst_in(btnd), 
                     .raw_amp_out(raw_amp_out), .shifted_amp_out(shifted_amp_out),  
-                    .spectrogram_raw_amp_out(spectrogram_raw_amp_out),
+                    .spectrogram_raw_amp_out(spectrogram_raw_amp_out), .nat_freq(nat_freq),
                     .amp_scale(sw[3:0]), .visualize_mode(sw[15:14]), .pwm_val(pwm_val), 
                     .draw_addr(draw_addr), .spectrogram_draw_addr(spectrogram_draw_addr),
                     .vga_r(vga_r), .vga_b(vga_b), .vga_g(vga_g), .vga_hs(vga_hs), .vga_vs(vga_vs), 
-                    .aud_pwm(aud_pwm));    
+                    .aud_pwm(aud_pwm));  
+                    
+    logic [9:0] fftk_addr;
+    logic [31:0] fftk_ampl;
+    logic [31:0] fft2k_ampl;
+    logic [31:0] fft3k_ampl;
+    
+    value_bram fftk (.addra(addr_count), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
+                    .douta(), .ena(1'b1), .wea(sqrt_valid),.dinb(0),
+                    .addrb(fftk_addr), .clkb(pixel_clk), .doutb(fftk_ampl),
+                    .web(1'b0), .enb(1'b1));
+    value_bram fft2k (.addra(addr_count), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
+                    .douta(), .ena(1'b1), .wea(sqrt_valid),.dinb(0),
+                    .addrb(fftk_addr*2), .clkb(pixel_clk), .doutb(fft2k_ampl),
+                    .web(1'b0), .enb(1'b1));                
+    value_bram fft3k (.addra(addr_count), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
+                    .douta(), .ena(1'b1), .wea(sqrt_valid),.dinb(0),
+                    .addrb(fftk_addr*3), .clkb(pixel_clk), .doutb(fft3k_ampl),
+                    .web(1'b0), .enb(1'b1));
+                    
+    localparam FFT_WINDOW_SIZE = 1024;
+    localparam FFT_SAMPLE_SIZE = 32;
+    localparam HPS_NUMBER_OF_TERMS = 3;
+           
+    logic s_ready;
+    logic [FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS-1:0] s_data;
+    logic s_last;
+    logic s_valid;
+    logic m_valid;
+    logic [9:0] m_data;
+    
+    freq_detect_v3_0 #(.FFT_WINDOW_SIZE(FFT_WINDOW_SIZE), .FFT_SAMPLE_SIZE(FFT_SAMPLE_SIZE)) 
+        my_freq_detect(.clk(pixel_clk), .resetn(1'b1),
+                            .s00_axis_tready(s_ready),
+                            .s00_axis_tdata(s_data),.s00_axis_tlast(s_last),
+                            .s00_axis_tvalid(s_valid),
+                            .m00_axis_tvalid(m_valid),
+                            .m00_axis_tdata(m_data),
+                            .m00_axis_tready());
+                            
+    typedef enum {READ_WAIT, ACTION_TO_SLAVE, WAITING_FOR_SLAVE} State;
+    State mem_state;
+    logic [9:0] nat_freq;
+    
+    always_ff @(posedge pixel_clk) begin
+        if (btnd == 1'b1) begin // kinda reset
+            fftk_addr <= 10'b0;
+            mem_state <= READ_WAIT;
+            s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};
+            s_last <= 1'b0;
+            s_valid <= 1'b0;
+            nat_freq <=10'b0;
+        end else begin
+            case (mem_state) 
+                READ_WAIT: begin
+                        mem_state <= ACTION_TO_SLAVE;
+                    end
+                ACTION_TO_SLAVE: begin
+                        if (fftk_addr == 10'd170) begin
+                            s_last <=1'b1;
+                            fftk_addr <= 10'd0;
+                        end else begin
+                            fftk_addr <= fftk_addr + 10'b1;
+                            s_last <=1'b0;
+                        end
+                        if (fftk_addr < 10'd2)
+                            s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};
+                        else
+                            s_data <= {fftk_ampl, fft2k_ampl, fft3k_ampl};
+                        s_valid <= 1'b1;
+                        mem_state <= WAITING_FOR_SLAVE;
+                    end
+                WAITING_FOR_SLAVE: begin
+                        if (s_ready == 1'b1) begin
+                            s_valid <= 1'b0;
+                            s_last <= 1'b0;
+                            mem_state <= ACTION_TO_SLAVE;
+                        end else begin
+                            mem_state <= WAITING_FOR_SLAVE;
+                        end  
+                        mem_state <= READ_WAIT;    
+                    end
+                default: mem_state <= READ_WAIT;
+            endcase 
+            
+            if (m_valid == 1'b1) begin
+                nat_freq <= m_data;
+            end
+        end
+    end  
     
 endmodule
 
