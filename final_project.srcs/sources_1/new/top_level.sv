@@ -20,6 +20,7 @@ module top_level(   input clk_100mhz,
                     output logic aud_sd
     );  
     parameter SAMPLE_COUNT = 4164; //2082;//gets approximately (will generate audio at approx 48 kHz sample rate.
+    parameter FFT_DEPTH = 1024;
     
     logic rst_in;
     assign rst_in = btnd;
@@ -41,11 +42,6 @@ module top_level(   input clk_100mhz,
     logic       fft_last;
     logic [9:0] fft_data_counter;
     
-    logic fft_out_ready;
-    logic fft_out_valid;
-    logic fft_out_last;
-    logic [31:0] fft_out_data;
-    
     logic sqsum_valid;
     logic sqsum_last;
     logic sqsum_ready;
@@ -62,6 +58,14 @@ module top_level(   input clk_100mhz,
     
     logic pixel_clk;
     
+    typedef enum {READ_WAIT, ACTION_TO_SLAVE, WAITING_FOR_SLAVE} State;
+    State mem_state;
+    
+    logic [9:0] sqsum_raw_addr;
+    logic [31:0] sqsum_raw_data;
+    logic sqsum_raw_ready;
+    logic sqsum_raw_valid;
+    logic sqsum_raw_last;
     
     vga_clk myvga (.clk_in1(clk_100mhz), .clk_out1(pixel_clk));
     
@@ -124,17 +128,94 @@ module top_level(   input clk_100mhz,
                      .s_axis_config_tvalid(0),
                      .s_axis_config_tready(),
                     .m_axis_data_tdata(fft_out_data), .m_axis_data_tvalid(fft_out_valid),
-                    .m_axis_data_tlast(fft_out_last), .m_axis_data_tready(fft_out_ready));
+                    .m_axis_data_tlast(fft_out_last), .m_axis_data_tready(1'b1));
     
     //for debugging commented out, make this whatever size,detail you want:
     //ila_0 myila (.clk(clk_100mhz), .probe0(fifo_data), .probe1(sqrt_data), .probe2(sqsum_data), .probe3(fft_out_data));
     
+    
+    logic [9:0] fft_raw_bram_addr;
+    logic [15:0] fft_raw_bram_data;
+    
+    typedef enum {SQSUM_READ_WAIT, SQSUM_ACTION_TO_SLAVE, SQSUM_WAITING_FOR_SLAVE} Sqsum_state;
+    Sqsum_state sqsum_mem_state;
+    
+    logic [9:0] sqsum_raw_addr;
+    logic [31:0] sqsum_raw_data;
+    logic sqsum_raw_valid;
+    logic sqsum_raw_last;
+    logic sqsum_raw_ready;
+    
+    always_ff @(posedge clk_100mhz)begin
+        if (rst_in) begin
+            fft_raw_bram_addr <= 1'b0;
+        end else begin
+            if (fft_last) begin
+                fft_raw_bram_addr <= 16'b0;
+            end else begin
+                fft_raw_bram_addr <= fft_raw_bram_addr + 16'b1;
+            end
+            if (fft_out_valid) begin
+                fft_raw_bram_data <= fft_out_data;
+            end
+        end
+    end
+    
+    always_ff @(posedge clk_100mhz) begin
+        if (rst_in) begin
+            sqsum_raw_addr <= 10'b0;
+            sqsum_mem_state <= SQSUM_READ_WAIT;
+            sqsum_raw_last <= 1'b0;
+            sqsum_raw_valid <= 1'b0;
+        end else begin
+            case (sqsum_mem_state) 
+                SQSUM_READ_WAIT: begin
+                    sqsum_mem_state <= SQSUM_ACTION_TO_SLAVE;
+                end
+                SQSUM_ACTION_TO_SLAVE: begin
+                    if (sqsum_raw_addr == FFT_DEPTH - 1) begin
+                        sqsum_raw_addr <= 10'd0;
+                        sqsum_raw_last <= 1'b1;
+                    end else begin
+                        sqsum_raw_addr <= sqsum_raw_addr + 10'b1;
+                        sqsum_raw_last <= 1'b0;
+                    end
+//                    sqsum_raw_data <= fft_raw_data;
+                    sqsum_raw_valid <= 1'b1;
+                    mem_state <= WAITING_FOR_SLAVE;
+                end
+                SQSUM_WAITING_FOR_SLAVE: begin
+                    if (sqsum_raw_ready == 1'b1) begin
+                        sqsum_raw_valid <= 1'b0;
+                        sqsum_raw_last <= 1'b0;
+                        mem_state <= ACTION_TO_SLAVE;
+                    end else begin
+                        mem_state <= WAITING_FOR_SLAVE;
+                    end  
+                end
+                default: mem_state <= READ_WAIT;
+            endcase
+        end
+    end  
+    
+    fft_to_sqsum_bram fft_raw_tosqsum(
+        .clka(clk_100mhz),    // input wire clka
+        .ena(1),      // input wire ena
+        .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
+        .addra(fft_raw_bram_addr),  // input wire [10 : 0] addra
+        .dina(fft_raw_bram_data),    // input wire [11 : 0] dina
+        .clkb(clk_100mhz),    // input wire clkb
+        .enb(1),      // input wire enb
+        .addrb(sqsum_raw_addr),  // input wire [10 : 0] addrb
+        .doutb(sqsum_raw_data)  // output wire [11 : 0] doutb
+    ); 
+    
     //custom module (was written with a Vivado AXI-Streaming Wizard so format looks inhuman
     //this is because it was a template I customized.
     square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
-                            .s00_axis_tready(fft_out_ready),
-                            .s00_axis_tdata(fft_out_data),.s00_axis_tlast(fft_out_last),
-                            .s00_axis_tvalid(fft_out_valid),.m00_axis_aclk(clk_100mhz),
+                            .s00_axis_tready(sqsum_raw_ready),
+                            .s00_axis_tdata(sqsum_raw_data),.s00_axis_tlast(sqsum_raw_last),
+                            .s00_axis_tvalid(sqsum_raw_valid),.m00_axis_aclk(clk_100mhz),
                             .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_valid),
                             .m00_axis_tdata(sqsum_data),.m00_axis_tlast(sqsum_last),
                             .m00_axis_tready(sqsum_ready));
@@ -254,7 +335,7 @@ module top_level(   input clk_100mhz,
     visualizer viz (.clk_in(pixel_clk), .rst_in(btnd), 
                     .raw_amp_out(raw_amp_out), .shifted_amp_out(shifted_amp_out),  
                     .spectrogram_raw_amp_out(spectrogram_raw_amp_out), .nat_freq(nat_freq),
-                    .amp_scale(sw[3:0]), .visualize_mode(sw[15:14]), .pwm_val(pwm_val), 
+                    .amp_scale(sw[3:0]), .visualize_mode(sw[5:4]), .pwm_val(pwm_val), 
                     .draw_addr(draw_addr), .spectrogram_draw_addr(spectrogram_draw_addr),
                     .vga_r(vga_r), .vga_b(vga_b), .vga_g(vga_g), .vga_hs(vga_hs), .vga_vs(vga_vs), 
                     .aud_pwm(aud_pwm));  
@@ -337,7 +418,6 @@ module top_level(   input clk_100mhz,
                         end else begin
                             mem_state <= WAITING_FOR_SLAVE;
                         end  
-                        mem_state <= READ_WAIT;    
                     end
                 default: mem_state <= READ_WAIT;
             endcase 
