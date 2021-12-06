@@ -41,6 +41,11 @@ module top_level(   input clk_100mhz,
     logic       fft_valid;
     logic       fft_last;
     logic [9:0] fft_data_counter;
+    	
+    logic fft_out_ready;	
+    logic fft_out_valid;	
+    logic fft_out_last;	
+    logic [31:0] fft_out_data;
     
     logic sqsum_valid;
     logic sqsum_last;
@@ -57,15 +62,6 @@ module top_level(   input clk_100mhz,
     logic sqrt_last;
     
     logic pixel_clk;
-    
-    typedef enum {READ_WAIT, ACTION_TO_SLAVE, WAITING_FOR_SLAVE} State;
-    State mem_state;
-    
-    logic [9:0] sqsum_raw_addr;
-    logic [31:0] sqsum_raw_data;
-    logic sqsum_raw_ready;
-    logic sqsum_raw_valid;
-    logic sqsum_raw_last;
     
     vga_clk myvga (.clk_in1(clk_100mhz), .clk_out1(pixel_clk));
     
@@ -133,92 +129,107 @@ module top_level(   input clk_100mhz,
     //for debugging commented out, make this whatever size,detail you want:
     //ila_0 myila (.clk(clk_100mhz), .probe0(fifo_data), .probe1(sqrt_data), .probe2(sqsum_data), .probe3(fft_out_data));
     
-    
     logic [9:0] fft_raw_bram_addr;
     logic [15:0] fft_raw_bram_data;
+    logic fft_raw_bram_wen;
     
-    typedef enum {SQSUM_READ_WAIT, SQSUM_ACTION_TO_SLAVE, SQSUM_WAITING_FOR_SLAVE} Sqsum_state;
-    Sqsum_state sqsum_mem_state;
+    typedef enum {SQSUM_READ_WAIT, SQSUM_ACTION_TO_SLAVE, SQSUM_WAITING_FOR_SLAVE} Sqsum_raw_bram_state;
+    Sqsum_raw_bram_state sqsum_raw_bram_state;
     
-    logic [9:0] sqsum_raw_addr;
-    logic [31:0] sqsum_raw_data;
-    logic sqsum_raw_valid;
-    logic sqsum_raw_last;
-    logic sqsum_raw_ready;
+    logic [9:0] sqsum_raw_bram_addr;
+    logic [31:0] sqsum_raw_bram_data;
+    logic sqsum_raw_bram_valid;
+    logic sqsum_raw_bram_last;
+    logic sqsum_raw_bram_ready;
     
-    always_ff @(posedge clk_100mhz)begin
+    assign fft_raw_bram_data = fft_out_data;
+    assign fft_raw_bram_wen = fft_out_valid;
+    assign sqsum_raw_bram_ready = 1'b1;
+    
+    always_ff @(posedge clk_100mhz) begin
         if (rst_in) begin
-            fft_raw_bram_addr <= 1'b0;
-        end else begin
-            if (fft_last) begin
-                fft_raw_bram_addr <= 16'b0;
+            fft_raw_bram_addr <= 10'd0;
+        end else if (fft_out_valid)begin
+            if (fft_out_last) begin
+                fft_raw_bram_addr <= 10'd0; //allign
             end else begin
-                fft_raw_bram_addr <= fft_raw_bram_addr + 16'b1;
-            end
-            if (fft_out_valid) begin
-                fft_raw_bram_data <= fft_out_data;
+                fft_raw_bram_addr <= fft_raw_bram_addr + 10'd1;
             end
         end
     end
     
     always_ff @(posedge clk_100mhz) begin
         if (rst_in) begin
-            sqsum_raw_addr <= 10'b0;
-            sqsum_mem_state <= SQSUM_READ_WAIT;
-            sqsum_raw_last <= 1'b0;
-            sqsum_raw_valid <= 1'b0;
+            sqsum_raw_bram_addr <= 10'b0;
+            sqsum_raw_bram_state <= SQSUM_READ_WAIT;
+            sqsum_raw_bram_last <= 1'b0;
+            sqsum_raw_bram_valid <= 1'b0;
         end else begin
-            case (sqsum_mem_state) 
+            case (sqsum_raw_bram_state) 
                 SQSUM_READ_WAIT: begin
-                    sqsum_mem_state <= SQSUM_ACTION_TO_SLAVE;
+                    sqsum_raw_bram_state <= SQSUM_ACTION_TO_SLAVE;
                 end
                 SQSUM_ACTION_TO_SLAVE: begin
-                    if (sqsum_raw_addr == FFT_DEPTH - 1) begin
-                        sqsum_raw_addr <= 10'd0;
-                        sqsum_raw_last <= 1'b1;
+                    if (sqsum_raw_bram_addr == FFT_DEPTH - 1) begin
+                        sqsum_raw_bram_addr <= 10'd0;
+                        sqsum_raw_bram_last <= 1'b1;
                     end else begin
-                        sqsum_raw_addr <= sqsum_raw_addr + 10'b1;
-                        sqsum_raw_last <= 1'b0;
+                        sqsum_raw_bram_addr <= sqsum_raw_bram_addr + 10'b1;
+                        sqsum_raw_bram_last <= 1'b0;
                     end
 //                    sqsum_raw_data <= fft_raw_data;
-                    sqsum_raw_valid <= 1'b1;
-                    mem_state <= WAITING_FOR_SLAVE;
+                    sqsum_raw_bram_valid <= 1'b1;
+                    sqsum_raw_bram_state <= SQSUM_WAITING_FOR_SLAVE;
                 end
                 SQSUM_WAITING_FOR_SLAVE: begin
-                    if (sqsum_raw_ready == 1'b1) begin
-                        sqsum_raw_valid <= 1'b0;
-                        sqsum_raw_last <= 1'b0;
-                        mem_state <= ACTION_TO_SLAVE;
+                    if (sqsum_raw_bram_ready == 1'b1) begin
+                        sqsum_raw_bram_valid <= 1'b0;
+                        sqsum_raw_bram_last <= 1'b0;
+                        sqsum_raw_bram_state <= SQSUM_ACTION_TO_SLAVE;
                     end else begin
-                        mem_state <= WAITING_FOR_SLAVE;
+                        sqsum_raw_bram_state <= SQSUM_WAITING_FOR_SLAVE;
                     end  
                 end
-                default: mem_state <= READ_WAIT;
+                default: sqsum_raw_bram_state <= SQSUM_READ_WAIT;
             endcase
         end
     end  
     
     fft_to_sqsum_bram fft_raw_tosqsum(
         .clka(clk_100mhz),    // input wire clka
-        .ena(1),      // input wire ena
-        .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
+        .wea(fft_out_valid),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
         .addra(fft_raw_bram_addr),  // input wire [10 : 0] addra
         .dina(fft_raw_bram_data),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
-        .enb(1),      // input wire enb
-        .addrb(sqsum_raw_addr),  // input wire [10 : 0] addrb
-        .doutb(sqsum_raw_data)  // output wire [11 : 0] doutb
+        .addrb(sqsum_raw_bram_addr),  // input wire [10 : 0] addrb
+        .doutb(sqsum_raw_bram_data)  // output wire [11 : 0] doutb
     ); 
     
     //custom module (was written with a Vivado AXI-Streaming Wizard so format looks inhuman
     //this is because it was a template I customized.
     square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
-                            .s00_axis_tready(sqsum_raw_ready),
-                            .s00_axis_tdata(sqsum_raw_data),.s00_axis_tlast(sqsum_raw_last),
-                            .s00_axis_tvalid(sqsum_raw_valid),.m00_axis_aclk(clk_100mhz),
+                            .s00_axis_tready(sw[5:4] == 'd1 ? 1'b1 : sqsum_raw_bram_ready),
+                            .s00_axis_tdata(sw[5:4] == 'd1 ? fft_out_data : sqsum_raw_bram_data),
+                            .s00_axis_tlast(sw[5:4] == 'd1 ? fft_out_last : sqsum_raw_bram_last),
+                            .s00_axis_tvalid(sw[5:4] == 'd1 ? fft_out_valid : sqsum_raw_bram_valid),
+                            .m00_axis_aclk(clk_100mhz),
                             .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_valid),
                             .m00_axis_tdata(sqsum_data),.m00_axis_tlast(sqsum_last),
                             .m00_axis_tready(sqsum_ready));
+//    square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
+//                            .s00_axis_tready(sqsum_raw_bram_ready),
+//                            .s00_axis_tdata(sqsum_raw_bram_data),.s00_axis_tlast(sqsum_raw_bram_last),
+//                            .s00_axis_tvalid(sqsum_raw_bram_valid),.m00_axis_aclk(clk_100mhz),
+//                            .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_valid),
+//                            .m00_axis_tdata(sqsum_data),.m00_axis_tlast(sqsum_last),
+//                            .m00_axis_tready(sqsum_ready));
+//    square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
+//                            .s00_axis_tready(fft_out_ready),
+//                            .s00_axis_tdata(fft_out_data),.s00_axis_tlast(fft_out_last),
+//                            .s00_axis_tvalid(fft_out_valid),.m00_axis_aclk(clk_100mhz),
+//                            .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_valid),
+//                            .m00_axis_tdata(sqsum_data),.m00_axis_tlast(sqsum_last),
+//                            .m00_axis_tready(sqsum_ready));
     
     //Didn't really need this fifo but put it in for because I felt like it and for practice:
     //This is an AXI4-Stream Data FIFO
@@ -279,7 +290,7 @@ module top_level(   input clk_100mhz,
             spectrogram_count <= 0;
             spectrogram_wea <= 0;
             spectrogram_raw_amp_in <= 0;
-        end else if (!rst_in && sqrt_valid)begin
+        end else if (!rst_in && sqrt_valid) begin
             spectrogram_wea <= addr_count <= SPECTROGRAM_BRAM_WIDTH;
             if (sqrt_last) begin
                 addr_count <= 'd0; //allign
