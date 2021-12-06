@@ -20,8 +20,10 @@ module top_level(   input clk_100mhz,
                     output logic aud_sd
     );  
     parameter SAMPLE_COUNT = 4164; //2082;//gets approximately (will generate audio at approx 48 kHz sample rate.
-    parameter FFT_DEPTH = 1024;
-    
+    localparam FFT_WINDOW_SIZE = 1024;
+    localparam FFT_SAMPLE_SIZE = 32;
+    localparam ADDRESS_SIZE = $clog2(FFT_WINDOW_SIZE);
+  
     logic rst_in;
     assign rst_in = btnd;
     
@@ -187,7 +189,7 @@ module top_level(   input clk_100mhz,
                     sqsum_mem_state <= SQSUM_ACTION_TO_SLAVE;
                 end
                 SQSUM_ACTION_TO_SLAVE: begin
-                    if (sqsum_raw_addr == FFT_DEPTH - 1) begin
+                  if (sqsum_raw_addr == FFT_WINDOW_SIZE - 1) begin
                         sqsum_raw_addr <= 10'd0;
                         sqsum_raw_last <= 1'b1;
                     end else begin
@@ -342,10 +344,13 @@ module top_level(   input clk_100mhz,
                     .vga_r(vga_r), .vga_b(vga_b), .vga_g(vga_g), .vga_hs(vga_hs), .vga_vs(vga_vs), 
                     .aud_pwm(aud_pwm));  
                     
-    logic [9:0] fftk_addr;
-    logic [31:0] fftk_ampl;
-    logic [31:0] fft2k_ampl;
-    logic [31:0] fft3k_ampl;
+    localparam HPS_NUMBER_OF_TERMS = 3;
+    localparam HPS_ADDRESS_MAX = FFT_WINDOW_SIZE/2/HPS_NUMBER_OF_TERMS-1;
+    
+    logic [ADDRESS_SIZE-1:0] fftk_addr;
+    logic [FFT_SAMPLE_SIZE-1:0] fftk_ampl;
+    logic [FFT_SAMPLE_SIZE-1:0] fft2k_ampl;
+    logic [FFT_SAMPLE_SIZE-1:0] fft3k_ampl;
     
     value_bram fftk (.addra(addr_count), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
                     .douta(), .ena(1'b1), .wea(sqrt_valid),.dinb(0),
@@ -360,76 +365,90 @@ module top_level(   input clk_100mhz,
                     .addrb(fftk_addr*3), .clkb(pixel_clk), .doutb(fft3k_ampl),
                     .web(1'b0), .enb(1'b1));
                     
-    localparam FFT_WINDOW_SIZE = 1024;
-    localparam FFT_SAMPLE_SIZE = 32;
-    localparam HPS_NUMBER_OF_TERMS = 3;
-           
-    logic s_ready;
-    logic [FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS-1:0] s_data;
-    logic s_last;
-    logic s_valid;
-    logic m_valid;
-    logic [9:0] m_data;
+    logic hps_s_ready;
+    logic [FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS-1:0] hps_s_data;
+    logic hps_s_last;
+    logic hps_s_valid;
+    logic hps_m_valid;
+    logic [ADDRESS_SIZE-1:0] hps_m_data;
     
     freq_detect_v3_0 #(.FFT_WINDOW_SIZE(FFT_WINDOW_SIZE), .FFT_SAMPLE_SIZE(FFT_SAMPLE_SIZE)) 
         my_freq_detect(.clk(pixel_clk), .resetn(1'b1),
-                            .s00_axis_tready(s_ready),
-                            .s00_axis_tdata(s_data),.s00_axis_tlast(s_last),
-                            .s00_axis_tvalid(s_valid),
-                            .m00_axis_tvalid(m_valid),
-                            .m00_axis_tdata(m_data),
+                            .s00_axis_tready(hps_s_ready),
+                            .s00_axis_tdata(hps_s_data),.s00_axis_tlast(hps_s_last),
+                            .s00_axis_tvalid(hps_s_valid),
+                            .m00_axis_tvalid(hps_m_valid),
+                            .m00_axis_tdata(hps_m_data),
                             .m00_axis_tready());
                             
-    typedef enum {READ_WAIT, ACTION_TO_SLAVE, WAITING_FOR_SLAVE} State;
-    State mem_state;
-    logic [9:0] nat_freq;
+    typedef enum {READ_WAIT_INIT_1, READ_WAIT_INIT_2, ACTION_TO_SLAVE, WAITING_FOR_SLAVE, DONE} HpsMemState;
+    HpsMemState hps_mem_state;
+    logic [ADDRESS_SIZE-1:0] nat_freq;
     
     always_ff @(posedge pixel_clk) begin
-        if (btnd == 1'b1) begin // kinda reset
-            fftk_addr <= 10'b0;
-            mem_state <= READ_WAIT;
-            s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};
-            s_last <= 1'b0;
-            s_valid <= 1'b0;
-            nat_freq <=10'b0;
+        if (sqrt_last == 1'b1 && sqrt_valid == 1'b1) begin // kinda reset
+            fftk_addr <= {ADDRESS_SIZE{1'b0}};
+            hps_mem_state <= READ_WAIT_INIT_1;
+            hps_s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};
+            hps_s_last <= 1'b0;
+            hps_s_valid <= 1'b0;
+            nat_freq <= {ADDRESS_SIZE{1'b0}};
         end else begin
-            case (mem_state) 
-                READ_WAIT: begin
-                        mem_state <= ACTION_TO_SLAVE;
-                    end
+            case (hps_mem_state) 
+            
+                READ_WAIT_INIT_1: begin
+                        hps_mem_state <= READ_WAIT_INIT_2;
+                end
+                
+                READ_WAIT_INIT_2: begin
+                        hps_mem_state <= ACTION_TO_SLAVE;
+                        fftk_addr <= fftk_addr + 'b1;
+                end
+                
                 ACTION_TO_SLAVE: begin
-                        if (fftk_addr == 10'd170) begin
-                            s_last <=1'b1;
-                            fftk_addr <= 10'd0;
-                        end else begin
-                            fftk_addr <= fftk_addr + 10'b1;
-                            s_last <=1'b0;
-                        end
-                        if (fftk_addr < 10'd2)
-                            s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};
-                        else
-                            s_data <= {fftk_ampl, fft2k_ampl, fft3k_ampl};
-                        s_valid <= 1'b1;
-                        mem_state <= WAITING_FOR_SLAVE;
+                    if (fftk_addr == 1)
+                        hps_s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};
+                    else
+                        hps_s_data <= {fftk_ampl, fft2k_ampl, fft3k_ampl};
+                    hps_s_valid <= 1'b1;
+                      
+                    if (fftk_addr == 0) begin
+                        hps_s_last <=1'b1;
+                        hps_mem_state <= DONE;
+                    end else begin
+                        hps_mem_state <= WAITING_FOR_SLAVE;
                     end
+               end
+                    
                 WAITING_FOR_SLAVE: begin
-                        if (s_ready == 1'b1) begin
-                            s_valid <= 1'b0;
-                            s_last <= 1'b0;
-                            mem_state <= ACTION_TO_SLAVE;
+                    if (hps_s_ready == 1'b1) begin
+                        hps_s_valid <= 1'b0;
+                        hps_s_last <= 1'b0;
+                        if (fftk_addr == HPS_ADDRESS_MAX) begin
+                            fftk_addr <={ADDRESS_SIZE{1'b0}};
                         end else begin
-                            mem_state <= WAITING_FOR_SLAVE;
-                        end  
-                    end
-                default: mem_state <= READ_WAIT;
+                            fftk_addr <= fftk_addr + 'b1;
+                        end
+                        hps_mem_state <= ACTION_TO_SLAVE;
+                    end else begin
+                        hps_mem_state <= WAITING_FOR_SLAVE;
+                    end      
+                end
+                
+                DONE: begin
+                    hps_mem_state <= DONE;
+                    hps_s_last <=1'b0;
+                    hps_s_valid <= 1'b0;
+                end
+                
+                default: hps_mem_state <= READ_WAIT_INIT_1;
             endcase 
             
-            if (m_valid == 1'b1) begin
-                nat_freq <= m_data;
+            if (hps_m_valid == 1'b1) begin
+                nat_freq <= hps_m_data;
             end
         end
-    end  
-    
+    end   
 endmodule
 
 //PWM generator for audio generation!
