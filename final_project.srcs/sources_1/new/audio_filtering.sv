@@ -7,27 +7,28 @@
 module recorder(
   input wire clk_in,              // 100MHz system clock
   input wire rst_in,               // 1 to reset to initial state
-  //input wire record_in,            // 0 for playback, 1 for record
   input wire ready_in,             // 1 when data is available
   input wire filter_in,            // 1 when using low-pass filter for audio input
   input wire signed[BIT_DEPTH-1:0] mic_in,         // PCM data from mic
-  output logic fft_start,
-  output logic [10:0] write_addr,
+  output logic [ADDRESS_BIT_WIDTH-1:0] write_addr,
+  output logic window_finish,
   output logic [BIT_DEPTH-1:0] data_out
 );                               
 
-    localparam WINDOW_SIZE = 1024;
-    localparam WINDOW_COUNT = 3;
-    localparam MAX_ADDR = (WINDOW_COUNT+1)*WINDOW_SIZE/2;
-    parameter BIT_DEPTH = 16;          
+    parameter WINDOW_SIZE = 512;
+    parameter WINDOW_COUNT = 4;
+    parameter MAX_ADDR = 2048;
+    parameter BIT_DEPTH = 16;
+    parameter ADDRESS_BIT_WIDTH = 11; 
+    parameter COUNT = 3'd6; // downsampling coefficient         
                   
     logic signed [BIT_DEPTH-1:0] aud_in_filter_input;
     logic signed [BIT_DEPTH-1+10:0] aud_in_filter_output;
     fir31 input_low_pass_filter(  .clk_in(clk_in), .rst_in(rst_in), .ready_in(ready_in),
                             .x_in(aud_in_filter_input), .y_out(aud_in_filter_output));             
     
-    logic [2:0] count; // used to downsample from 48kHz to 8kHz                
-    assign fft_start = write_addr == WINDOW_SIZE-1 || write_addr == 3/2*WINDOW_SIZE-1 || write_addr == 2*WINDOW_SIZE-1;
+    logic [2:0] count; // used to downsample from 48kHz to 8kHz 
+    logic [8:0] sample_counter;      
     
     always_ff @(posedge clk_in)begin
         // Testing audio and microphone
@@ -36,15 +37,18 @@ module recorder(
         
         if (rst_in) begin
             count <= 0;
+            sample_counter <= 0;
             write_addr <= 0;
         end else if (ready_in) begin
-            if (count == 3'd5) begin
+            if (count == COUNT-1) begin
                 data_out <= filter_in ? aud_in_filter_output[BIT_DEPTH-1+10:10] : mic_in;
-                write_addr <= write_addr < MAX_ADDR - 1 ? write_addr + 1 : 0; 
-            end
+                write_addr <= write_addr + 1; 
+                sample_counter <= sample_counter == WINDOW_SIZE-1 ? 0 : sample_counter + 1;
+                if (sample_counter == WINDOW_SIZE-1) window_finish <= 1;
+            end else window_finish <= 0;
             aud_in_filter_input <= mic_in;
-            count <= count < 3'd5 ? count + 1 : 0;
-        end     
+            count <= count < COUNT-1 ? count + 1 : 0;
+        end else window_finish <= 0;    
     end                        
 endmodule
 
@@ -53,36 +57,40 @@ module playback(
   input wire rst_in,               // 1 to reset to initial state
   input wire ready_in,             // 1 when data is available
   input wire filter_in,           // 1 when using low-pass filter for audio output
-  output logic [9:0] read_addr,
+  output logic [ADDRESS_BIT_WIDTH-1:0] read_addr,
   input wire signed[BIT_DEPTH-1:0] input_data,         // PCM data from mic
+  input wire playback_start,
   output logic signed [BIT_DEPTH-1:0] data_out      // PCM data to headphone
 );                         
 
-    localparam WINDOW_SIZE = 1024;
-    localparam WINDOW_COUNT = 1;
-    localparam MAX_ADDR = (WINDOW_COUNT+1)*WINDOW_SIZE/2;
+    parameter WINDOW_SIZE = 512;
+    parameter WINDOW_COUNT = 4;
+    parameter MAX_ADDR = 2048;
     parameter BIT_DEPTH = 16; 
+    parameter ADDRESS_BIT_WIDTH = 11;
+    parameter COUNT = 3'd6; // downsampling coefficient
                   
     logic signed [BIT_DEPTH-1:0] aud_out_filter_input;
     logic signed [BIT_DEPTH-1+10:0] aud_out_filter_output;
     fir31 output_low_pass_filter(  .clk_in(clk_in), .rst_in(rst_in), .ready_in(ready_in),
                             .x_in(aud_out_filter_input), .y_out(aud_out_filter_output));            
     
-    logic [2:0] count; // used to upsample from 8kHz to 48kHz                         
+    logic [2:0] count; // used to upsample from 8kHz to 48kHz   
+    logic processing;                      
     
     always_ff @(posedge clk_in)begin
         if (rst_in) begin
             count <= 0;
             read_addr <= 0;
         end else if (ready_in) begin
-            if (count == 3'd5) begin
+            if (count == COUNT-1) begin
                 read_addr <= read_addr < MAX_ADDR - 1 ? read_addr + 1 : 0; 
             end
-            aud_out_filter_input <= count == 3'd5 ? input_data : 0;
+            aud_out_filter_input <= count == COUNT-1 ? input_data : 0;
             data_out <= filter_in ? aud_out_filter_output[BIT_DEPTH-1+10:10] : input_data;
-            count <= count < 3'd5 ? count + 1 : 0;
+            count <= count < COUNT-1 ? count + 1 : 0;
         end     
-    end                        
+    end                     
 endmodule 
 
 ///////////////////////////////////////////////////////////////////////////////
