@@ -162,6 +162,19 @@ module top_level(   input clk_100mhz,
         end
     end
     
+    
+    fft_to_sqsum_bram fft_raw_tosqsum(
+        .clka(clk_100mhz),    // input wire clka
+        .ena(1),      // input wire ena
+        .wea(fft_out_valid),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
+        .addra(fft_raw_bram_addr),  // input wire [10 : 0] addra
+        .dina(fft_raw_bram_data),    // input wire [11 : 0] dina
+        .clkb(clk_100mhz),    // input wire clkb
+        .enb(1),      // input wire enb
+        .addrb(sqsum_raw_addr),  // input wire [10 : 0] addrb
+        .doutb(sqsum_raw_data)  // output wire [11 : 0] doutb
+    ); 
+    
     always_ff @(posedge clk_100mhz) begin
         if (rst_in) begin
             sqsum_raw_addr <= 10'b0;
@@ -181,36 +194,24 @@ module top_level(   input clk_100mhz,
                         sqsum_raw_addr <= sqsum_raw_addr + 10'b1;
                         sqsum_raw_last <= 1'b0;
                     end
-//                    sqsum_raw_data <= fft_raw_data;
+
                     sqsum_raw_valid <= 1'b1;
-                    mem_state <= WAITING_FOR_SLAVE;
+                    sqsum_mem_state <= SQSUM_WAITING_FOR_SLAVE;
                 end
                 SQSUM_WAITING_FOR_SLAVE: begin
                     if (sqsum_raw_ready == 1'b1) begin
                         sqsum_raw_valid <= 1'b0;
                         sqsum_raw_last <= 1'b0;
-                        mem_state <= ACTION_TO_SLAVE;
+                        sqsum_mem_state <= SQSUM_ACTION_TO_SLAVE;
                     end else begin
-                        mem_state <= WAITING_FOR_SLAVE;
+                        sqsum_mem_state <= SQSUM_WAITING_FOR_SLAVE;
                     end  
                 end
-                default: mem_state <= READ_WAIT;
+                default: sqsum_mem_state <= SQSUM_READ_WAIT;
             endcase
         end
     end  
-    
-    fft_to_sqsum_bram fft_raw_tosqsum(
-        .clka(clk_100mhz),    // input wire clka
-        .ena(1),      // input wire ena
-        .wea(fft_out_valid),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
-        .addra(fft_raw_bram_addr),  // input wire [10 : 0] addra
-        .dina(fft_raw_bram_data),    // input wire [11 : 0] dina
-        .clkb(clk_100mhz),    // input wire clkb
-        .enb(1),      // input wire enb
-        .addrb(sqsum_raw_addr),  // input wire [10 : 0] addrb
-        .doutb(sqsum_raw_data)  // output wire [11 : 0] doutb
-    ); 
-    
+  
     //custom module (was written with a Vivado AXI-Streaming Wizard so format looks inhuman
     //this is because it was a template I customized.
     square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
