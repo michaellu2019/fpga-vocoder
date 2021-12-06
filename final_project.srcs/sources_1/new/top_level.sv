@@ -178,8 +178,8 @@ module top_level(   input clk_100mhz,
     
     logic [9:0] addr_count;
     logic [9:0] draw_addr;
-    logic [17:0] spectrogram_count;
-    logic [17:0] spectrogram_draw_addr;
+    logic [16:0] spectrogram_count;
+    logic [16:0] spectrogram_draw_addr;
     
     logic spectrogram_wea;
     logic [15:0] spectrogram_raw_amp_in;
@@ -188,8 +188,8 @@ module top_level(   input clk_100mhz,
     logic [31:0] shifted_amp_out;
     logic [15:0] spectrogram_raw_amp_out;
     
-    parameter SPECTROGRAM_WIDTH = 512;
-    parameter SPECTROGRAM_HEIGHT = 512;
+    parameter SPECTROGRAM_BRAM_WIDTH = 256;
+    parameter SPECTROGRAM_BRAM_HEIGHT = 512;
     
 //    assign spectrogram_wea = sqrt_valid && addr_count <= 'd512;
     always_ff @(posedge clk_100mhz) begin
@@ -199,13 +199,13 @@ module top_level(   input clk_100mhz,
             spectrogram_wea <= 0;
             spectrogram_raw_amp_in <= 0;
         end else if (!rst_in && sqrt_valid)begin
-            spectrogram_wea <= addr_count <= SPECTROGRAM_HEIGHT;
+            spectrogram_wea <= addr_count <= SPECTROGRAM_BRAM_WIDTH;
             if (sqrt_last) begin
                 addr_count <= 'd0; //allign
             end else begin
                 addr_count <= addr_count + 1;
                 
-                if (addr_count <= SPECTROGRAM_HEIGHT) begin
+                if (addr_count <= SPECTROGRAM_BRAM_WIDTH) begin
                     spectrogram_raw_amp_in <= sqrt_data[23:8];
 //                    spectrogram_raw_amp_in <= 16'd65000;
                     spectrogram_count <= spectrogram_count + 1;

@@ -11,13 +11,13 @@ module visualizer(
     input wire rst_in,
     input wire [31:0] raw_amp_out,
     input wire [31:0] shifted_amp_out,
-    input wire [16:0] spectrogram_raw_amp_out,
+    input wire [15:0] spectrogram_raw_amp_out,
     input wire [9:0] nat_freq,
     input wire [3:0] amp_scale,
     input wire [1:0] visualize_mode,
     input wire pwm_val,
     output logic [9:0] draw_addr,
-    output logic [17:0] spectrogram_draw_addr,
+    output logic [16:0] spectrogram_draw_addr,
     output logic[3:0] vga_r,
     output logic[3:0] vga_b,
     output logic[3:0] vga_g,
@@ -34,42 +34,41 @@ module visualizer(
     logic       vsync;
     logic       hsync;
     logic [11:0] rgb;
+    logic [11:0] raw_freq_color;
+    logic [11:0] shifted_freq_color;
+    logic [11:0] spectrogram_color;
     
-    parameter SPECTROGRAM_WIDTH = 512;
-    parameter SPECTROGRAM_HEIGHT = 512;
+    parameter SPECTROGRAM_WIDTH = MAX_HCOUNT;
+    parameter SPECTROGRAM_HEIGHT = MAX_VCOUNT;
     parameter SPECTROGRAM_AMP_SCALE = 10;
+    
+    color_picker raw_freq_color_picker(.amp_in(raw_amp_out >> amp_scale), 
+                                       .threshold(MAX_VCOUNT/2 - vcount), 
+                                       .color_out(raw_freq_color));
+    color_picker shifted_freq_color_picker(.amp_in(shifted_amp_out >> amp_scale), 
+                                           .threshold(MAX_VCOUNT - vcount), 
+                                           .color_out(shifted_freq_color));
+    color_picker spectrogram_freq_color_picker(.amp_in(spectrogram_raw_amp_out << amp_scale), 
+                                               .threshold(SPECTROGRAM_AMP_SCALE), 
+                                               .color_out(spectrogram_color));
     
     // display amplitude vs. frequency for raw audio data (raw_amp_out) and shifted data (shifted_amp_out)         
     always_ff @(posedge clk_in)begin
         if (visualize_mode == 'd0) begin
-            draw_addr <= hcount >> 1;
+            draw_addr <= hcount;
             if (vcount < MAX_VCOUNT/2 && (raw_amp_out >> amp_scale) >= MAX_VCOUNT/2 - vcount) begin
                 // draw top blue bar graph of unshifted frequencies
                 if (draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
                     rgb <= 12'hFFF;
                 end else begin
-                    rgb <= (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 6 ? 12'b1111_0000_0000 :
-                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 5 ? 12'b1111_0111_0000 :
-                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 4 ? 12'b1111_1111_0000 :
-                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 3 ? 12'b0000_1111_0000 :
-                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 2 ? 12'b0000_0000_1111 :
-                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 1 ? 12'b0111_0000_1111 :
-                           (raw_amp_out >> amp_scale) >= (MAX_VCOUNT/2 - vcount) << 0 ? 12'b1111_0000_1111 :
-                           12'b0000_0000_0000;
+                    rgb <= raw_freq_color;
                  end
             end else if (vcount >= MAX_VCOUNT/2 && (shifted_amp_out >> amp_scale) >= MAX_VCOUNT - vcount) begin
                 // draw bottom red bar graph of shifted frequencies
                 if (draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
                     rgb <= 12'hFFF;
                 end else begin
-                    rgb <= (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 6 ? 12'b1111_0000_0000 :
-                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 5 ? 12'b1111_0111_0000 :
-                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 4 ? 12'b1111_1111_0000 :
-                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 3 ? 12'b0000_1111_0000 :
-                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 2 ? 12'b0000_0000_1111 :
-                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 1 ? 12'b0111_0000_1111 :
-                       (shifted_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 0 ? 12'b1111_0000_1111 :
-                       12'b0000_0000_0000;
+                    rgb <= shifted_freq_color;
                  end
             end else begin
                 rgb <= 12'b0000_0000_0000;
@@ -77,16 +76,11 @@ module visualizer(
         end else if (visualize_mode == 'd1) begin 
             // draw the spectrogram
             // access the correct memory location in bram for the frequency
-            spectrogram_draw_addr <= hcount * (SPECTROGRAM_WIDTH + 1) - vcount;
-            if (hcount < SPECTROGRAM_WIDTH && vcount < SPECTROGRAM_HEIGHT) begin
-                rgb <= (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 6 ? 12'b1111_0000_0000 :
-                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 5 ? 12'b1111_0111_0000 :
-                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 4 ? 12'b1111_1111_0000 :
-                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 3 ? 12'b0000_1111_0000 :
-                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 2 ? 12'b0000_0000_1111 :
-                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 1 ? 12'b0111_0000_1111 :
-                       (spectrogram_raw_amp_out << amp_scale) >= SPECTROGRAM_AMP_SCALE << 0 ? 12'b1111_0000_1111 :
-                       12'b0000_0000_0000;
+            spectrogram_draw_addr <= (hcount >> 3) * (SPECTROGRAM_WIDTH + 4) - (vcount >> 1);
+            if (spectrogram_draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
+                rgb <= 12'hFFF;
+            end if (hcount < SPECTROGRAM_WIDTH && vcount < SPECTROGRAM_HEIGHT) begin
+                rgb <= spectrogram_color;
             end else begin
                 rgb <= 12'b1111_1111_1111;
             end
@@ -96,14 +90,6 @@ module visualizer(
                 if (draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
                     rgb <= 12'hFFF;
                 end else begin
-//                    rgb <= (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 6 ? 12'b1111_0000_0000 :
-//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 5 ? 12'b1111_0111_0000 :
-//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 4 ? 12'b1111_1111_0000 :
-//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 3 ? 12'b0000_1111_0000 :
-//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 2 ? 12'b0000_0000_1111 :
-//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 1 ? 12'b0111_0000_1111 :
-//                       (raw_amp_out >> amp_scale) >= (MAX_VCOUNT - vcount) << 0 ? 12'b1111_0000_1111 :
-//                       12'b0000_0000_0000;
                     rgb <= 12'b1100_0000_0110;
                 end
             end else begin
@@ -125,6 +111,29 @@ module visualizer(
     assign vga_vs = ~vsync;
 
     assign aud_pwm = pwm_val?1'bZ:1'b0; 
+endmodule
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Map frequency amplitudes to a distinct color for audio visualizers
+//
+///////////////////////////////////////////////////////////////////////////////
+
+module color_picker (
+    input wire [31:0] amp_in,
+    input wire [9:0] threshold,
+    output logic[11:0] color_out
+);
+    always_comb begin
+        color_out <= amp_in >= threshold << 6 ? 12'b1111_0000_0000 :
+                     amp_in >= threshold << 5 ? 12'b1111_0111_0000 :
+                     amp_in >= threshold << 4 ? 12'b1111_1111_0000 :
+                     amp_in >= threshold << 3 ? 12'b0000_1111_0000 :
+                     amp_in >= threshold << 2 ? 12'b0000_0000_1111 :
+                     amp_in >= threshold << 1 ? 12'b0111_0000_1111 :
+                     amp_in >= threshold << 0 ? 12'b1111_0000_1111 :
+                     12'b0000_0000_0000;
+    end
 endmodule
 
 //////////////////////////////////////////////////////////////////////////////////
