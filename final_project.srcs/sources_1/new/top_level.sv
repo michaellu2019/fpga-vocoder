@@ -60,9 +60,6 @@ module top_level(   input clk_100mhz,
     
     logic pixel_clk;
     
-    typedef enum {READ_WAIT, ACTION_TO_SLAVE, WAITING_FOR_SLAVE} State;
-    State mem_state;
-    
     logic [9:0] sqsum_raw_addr;
     logic [31:0] sqsum_raw_data;
     logic sqsum_raw_ready;
@@ -139,31 +136,27 @@ module top_level(   input clk_100mhz,
     logic [9:0] fft_raw_bram_addr;
     logic [15:0] fft_raw_bram_data;
     logic fft_raw_bram_wen;
-  
-    typedef enum {SQSUM_READ_WAIT, SQSUM_ACTION_TO_SLAVE, SQSUM_WAITING_FOR_SLAVE} Sqsum_state;
-    Sqsum_state sqsum_mem_state;
-    
-    logic [9:0] sqsum_raw_addr;
-    logic [31:0] sqsum_raw_data;
-    logic sqsum_raw_valid;
-    logic sqsum_raw_last;
-    logic sqsum_raw_ready;
     
     assign fft_raw_bram_data = fft_out_data;
     assign fft_raw_bram_wen = fft_out_valid;
 
     always_ff @(posedge clk_100mhz)begin
         if (rst_in) begin
-            fft_raw_bram_addr <= 1'b0;
+            fft_raw_bram_addr <= 10'd0;
         end else if (fft_out_valid)begin
             if (fft_out_last)begin
-                fft_raw_bram_addr <= 16'd0; //allign 
+                fft_raw_bram_addr <= 10'd0; //allign 
             end else begin
                 fft_raw_bram_addr <= fft_raw_bram_addr + 1'b1;
             end
         end
     end
     
+    logic sqsum_raw_valid;
+    logic sqsum_raw_last;
+    logic sqsum_raw_ready;
+    logic [ADDRESS_SIZE-1:0] sqsum_raw_addr;
+    logic [FFT_SAMPLE_SIZE-1:0] sqsum_raw_data;
     
     fft_to_sqsum_bram fft_raw_tosqsum(
         .clka(clk_100mhz),    // input wire clka
@@ -175,44 +168,62 @@ module top_level(   input clk_100mhz,
         .enb(1),      // input wire enb
         .addrb(sqsum_raw_addr),  // input wire [10 : 0] addrb
         .doutb(sqsum_raw_data)  // output wire [11 : 0] doutb
-    ); 
+    );
     
-    always_ff @(posedge clk_100mhz) begin
-        if (rst_in) begin
-            sqsum_raw_addr <= 10'b0;
-            sqsum_mem_state <= SQSUM_READ_WAIT;
+    typedef enum {READ_WAIT_INIT_1, READ_WAIT_INIT_2, ACTION_TO_SLAVE, WAITING_FOR_SLAVE, DONE} SqsumMemState;
+    SqsumMemState sqsum_mem_state;
+    always_ff @(posedge pixel_clk) begin
+      if (fft_out_last == 1'b1 && fft_out_valid == 1'b1) begin // kinda reset
+            sqsum_raw_addr <= {ADDRESS_SIZE{1'b0}};
+            sqsum_mem_state <= READ_WAIT_INIT_1;
             sqsum_raw_last <= 1'b0;
             sqsum_raw_valid <= 1'b0;
         end else begin
             case (sqsum_mem_state) 
-                SQSUM_READ_WAIT: begin
-                    sqsum_mem_state <= SQSUM_ACTION_TO_SLAVE;
+                READ_WAIT_INIT_1: begin
+                        sqsum_mem_state <= READ_WAIT_INIT_2;
                 end
-                SQSUM_ACTION_TO_SLAVE: begin
-                  if (sqsum_raw_addr == FFT_WINDOW_SIZE - 1) begin
-                        sqsum_raw_addr <= 10'd0;
-                        sqsum_raw_last <= 1'b1;
+                
+                READ_WAIT_INIT_2: begin
+                        sqsum_mem_state <= ACTION_TO_SLAVE;
+                        sqsum_raw_addr <= sqsum_raw_addr + 'b1;
+                end
+                
+                ACTION_TO_SLAVE: begin
+                    sqsum_raw_valid <= 1'b1;       
+                    if (sqsum_raw_addr == 0) begin
+                        sqsum_raw_last <=1'b1;
+                        sqsum_mem_state <= DONE;
                     end else begin
-                        sqsum_raw_addr <= sqsum_raw_addr + 10'b1;
-                        sqsum_raw_last <= 1'b0;
+                        sqsum_mem_state <= WAITING_FOR_SLAVE;
                     end
-
-                    sqsum_raw_valid <= 1'b1;
-                    sqsum_mem_state <= SQSUM_WAITING_FOR_SLAVE;
-                end
-                SQSUM_WAITING_FOR_SLAVE: begin
+               end
+                    
+                WAITING_FOR_SLAVE: begin
                     if (sqsum_raw_ready == 1'b1) begin
                         sqsum_raw_valid <= 1'b0;
                         sqsum_raw_last <= 1'b0;
-                        sqsum_mem_state <= SQSUM_ACTION_TO_SLAVE;
+                        if (sqsum_raw_addr == FFT_WINDOW_SIZE-1) begin
+                            sqsum_raw_addr <={ADDRESS_SIZE{1'b0}};
+                        end else begin
+                            sqsum_raw_addr <= sqsum_raw_addr + 'b1;
+                        end
+                        sqsum_mem_state <= ACTION_TO_SLAVE;
                     end else begin
-                        sqsum_mem_state <= SQSUM_WAITING_FOR_SLAVE;
-                    end  
+                        sqsum_mem_state <= WAITING_FOR_SLAVE;
+                    end      
                 end
-                default: sqsum_mem_state <= SQSUM_READ_WAIT;
-            endcase
+                
+                DONE: begin
+                    sqsum_mem_state <= DONE;
+                    sqsum_raw_last <=1'b0;
+                    sqsum_raw_valid <= 1'b0;
+                end
+                
+                default: sqsum_mem_state <= READ_WAIT_INIT_1;
+            endcase 
         end
-    end  
+    end
   
     //custom module (was written with a Vivado AXI-Streaming Wizard so format looks inhuman
     //this is because it was a template I customized.
