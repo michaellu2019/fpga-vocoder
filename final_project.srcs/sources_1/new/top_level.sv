@@ -136,7 +136,8 @@ module top_level(   input clk_100mhz,
     
     logic [9:0] fft_raw_bram_addr;
     logic [15:0] fft_raw_bram_data;
-    
+    logic fft_raw_bram_wen;
+  
     typedef enum {SQSUM_READ_WAIT, SQSUM_ACTION_TO_SLAVE, SQSUM_WAITING_FOR_SLAVE} Sqsum_state;
     Sqsum_state sqsum_mem_state;
     
@@ -146,17 +147,17 @@ module top_level(   input clk_100mhz,
     logic sqsum_raw_last;
     logic sqsum_raw_ready;
     
+    assign fft_raw_bram_data = fft_out_data;
+    assign fft_raw_bram_wen = fft_out_valid;
+
     always_ff @(posedge clk_100mhz)begin
         if (rst_in) begin
             fft_raw_bram_addr <= 1'b0;
-        end else begin
-            if (fft_last) begin
-                fft_raw_bram_addr <= 16'b0;
+        end else if (fft_out_valid)begin
+            if (fft_out_last)begin
+                fft_raw_bram_addr <= 16'd0; //allign 
             end else begin
-                fft_raw_bram_addr <= fft_raw_bram_addr + 16'b1;
-            end
-            if (fft_out_valid) begin
-                fft_raw_bram_data <= fft_out_data;
+                fft_raw_bram_addr <= fft_raw_bram_addr + 1'b1;
             end
         end
     end
@@ -201,7 +202,7 @@ module top_level(   input clk_100mhz,
     fft_to_sqsum_bram fft_raw_tosqsum(
         .clka(clk_100mhz),    // input wire clka
         .ena(1),      // input wire ena
-        .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
+        .wea(fft_out_valid),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
         .addra(fft_raw_bram_addr),  // input wire [10 : 0] addra
         .dina(fft_raw_bram_data),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
