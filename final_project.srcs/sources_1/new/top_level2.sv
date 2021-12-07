@@ -287,19 +287,20 @@ module top_level_2(   input clk_100mhz,
         if (sample_trigger) begin // 48kHz sampling rate
             scaled_adc_data <= 16*adc_data;
             scaled_signed_adc_data <= {~scaled_adc_data[15],scaled_adc_data[14:0]}; //convert to signed. incoming data is offset binary
+            // Currently working code
             if (fft_ready) begin 
                 fft_data_counter <= fft_last ? 0 : fft_data_counter +1;
                 fft_last <= fft_data_counter == NFFT_WINDOW_SIZE-1;
                 fft_valid <= 1'b1;
                 fft_data <= {16'b0, sw[10] ? {1'b0,hann_data_product[11+BIT_DEPTH-1:11+1]} : data_from_input_aud_bram}; //set the FFT DATA here!
-                read_addr1 <= fft_last ? read_addr1 - NFFT_WINDOW_SIZE + INPUT_WINDOW_SIZE -1 : read_addr1 + 1;
+                read_addr1 <= fft_last ? read_addr1 + INPUT_WINDOW_SIZE -1 : read_addr1 + 1;
             end
             if (fft_ready1) begin
                 fft_data_counter1 <= fft_last1 ? 0 : fft_data_counter1 + 1;
                 fft_last1 <= fft_data_counter1 == NFFT_WINDOW_SIZE-1;
                 fft_valid1 <= 1'b1;
                 fft_data1 <= data_from_input_aud_bram1; //set the FFT DATA here!
-                read_addr11 <= fft_last1 ? read_addr11 - NFFT_WINDOW_SIZE + INPUT_WINDOW_SIZE -1 : read_addr11 + 1;
+                read_addr11 <= fft_last1 ? read_addr11 + INPUT_WINDOW_SIZE -1 : read_addr11 + 1;
             end
             if (inv_fft_ready) begin
                 inv_fft_data_counter <= inv_fft_last ? 0 : inv_fft_data_counter + 1;
@@ -320,7 +321,7 @@ module top_level_2(   input clk_100mhz,
             inv_fft_data <= 0;
             inv_fft_last <= 0;
             inv_fft_valid <= 0;
-        end 
+        end  
         
         if (fft_out_valid) begin
             write_addr2 <= fft_out_last ? NFFT_WINDOW_SIZE-1 : write_addr2 + 1'b1;

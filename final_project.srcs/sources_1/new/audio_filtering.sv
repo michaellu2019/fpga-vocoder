@@ -81,7 +81,7 @@ module playback(
     always_ff @(posedge clk_in)begin
         if (rst_in) begin
             count <= 0;
-            read_addr <= 0;
+            read_addr <= WINDOW_SIZE-1;
         end else if (ready_in) begin
             if (count == COUNT-1) begin
                 read_addr <= read_addr < MAX_ADDR - 1 ? read_addr + 1 : 0; 
