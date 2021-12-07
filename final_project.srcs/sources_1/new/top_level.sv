@@ -20,7 +20,10 @@ module top_level(   input clk_100mhz,
                     output logic aud_sd
     );  
     parameter SAMPLE_COUNT = 4164; //2082;//gets approximately (will generate audio at approx 48 kHz sample rate.
-    parameter FFT_DEPTH = 1024;
+    parameter FFT_WINDOW_SIZE = 1024;
+    localparam FFT_SAMPLE_SIZE = 32;	
+    localparam ADDRESS_SIZE = $clog2(FFT_WINDOW_SIZE);	
+  
     
     logic rst_in;
     assign rst_in = btnd;
@@ -133,11 +136,11 @@ module top_level(   input clk_100mhz,
     logic [15:0] fft_raw_bram_data;
     logic fft_raw_bram_wen;
     
-    typedef enum {SQSUM_READ_WAIT, SQSUM_ACTION_TO_SLAVE, SQSUM_WAITING_FOR_SLAVE} Sqsum_raw_bram_state;
+    typedef enum {SQSUM_READ_WAIT_1, SQSUM_READ_WAIT_2, SQSUM_ACTION_TO_SLAVE, SQSUM_WAITING_FOR_SLAVE, SQSUM_DONE} Sqsum_raw_bram_state;
     Sqsum_raw_bram_state sqsum_raw_bram_state;
     
-    logic [9:0] sqsum_raw_bram_addr;
-    logic [31:0] sqsum_raw_bram_data;
+    logic [ADDRESS_SIZE-1:0] sqsum_raw_bram_addr;
+    logic [FFT_SAMPLE_SIZE-1:0] sqsum_raw_bram_data;
     logic sqsum_raw_bram_valid;
     logic sqsum_raw_bram_last;
     logic sqsum_raw_bram_ready;
@@ -159,38 +162,59 @@ module top_level(   input clk_100mhz,
     end
     
     always_ff @(posedge clk_100mhz) begin
-        if (rst_in) begin
-            sqsum_raw_bram_addr <= 10'b0;
-            sqsum_raw_bram_state <= SQSUM_READ_WAIT;
+        if (fft_out_last && fft_out_valid) begin
+            sqsum_raw_bram_addr <= {ADDRESS_SIZE{1'b0}};
+            sqsum_raw_bram_state <= SQSUM_READ_WAIT_1;
             sqsum_raw_bram_last <= 1'b0;
             sqsum_raw_bram_valid <= 1'b0;
         end else begin
             case (sqsum_raw_bram_state) 
-                SQSUM_READ_WAIT: begin
+                SQSUM_READ_WAIT_1: begin
+                    sqsum_raw_bram_state <= SQSUM_READ_WAIT_2;
+                end
+                SQSUM_READ_WAIT_2: begin
                     sqsum_raw_bram_state <= SQSUM_ACTION_TO_SLAVE;
+                    sqsum_raw_bram_addr <= sqsum_raw_bram_addr + 'b1;
                 end
                 SQSUM_ACTION_TO_SLAVE: begin
-                    if (sqsum_raw_bram_addr == FFT_DEPTH - 1) begin
-                        sqsum_raw_bram_addr <= 10'd0;
-                        sqsum_raw_bram_last <= 1'b1;
-                    end else begin
-                        sqsum_raw_bram_addr <= sqsum_raw_bram_addr + 10'b1;
-                        sqsum_raw_bram_last <= 1'b0;
-                    end
-//                    sqsum_raw_data <= fft_raw_data;
                     sqsum_raw_bram_valid <= 1'b1;
-                    sqsum_raw_bram_state <= SQSUM_WAITING_FOR_SLAVE;
+                    if (sqsum_raw_bram_addr == 0) begin
+                        sqsum_raw_bram_last <= 1'b1;
+                        sqsum_raw_bram_state <= SQSUM_DONE;
+                    end else begin 
+                        sqsum_raw_bram_state <= SQSUM_WAITING_FOR_SLAVE;
+                    end
+//                    if (sqsum_raw_bram_addr == FFT_WINDOW_SIZE - 1) begin
+//                        sqsum_raw_bram_addr <= 10'd0;
+//                        sqsum_raw_bram_last <= 1'b1;
+//                    end else begin
+//                        sqsum_raw_bram_addr <= sqsum_raw_bram_addr + 'b1;
+//                        sqsum_raw_bram_last <= 1'b0;
+//                    end
+////                    sqsum_raw_data <= fft_raw_data;
+//                    sqsum_raw_bram_valid <= 1'b1;
+//                    sqsum_raw_bram_state <= SQSUM_WAITING_FOR_SLAVE;
                 end
                 SQSUM_WAITING_FOR_SLAVE: begin
                     if (sqsum_raw_bram_ready == 1'b1) begin
                         sqsum_raw_bram_valid <= 1'b0;
                         sqsum_raw_bram_last <= 1'b0;
+                        if (sqsum_raw_bram_addr == FFT_WINDOW_SIZE-1) begin	
+                            sqsum_raw_bram_addr <={ADDRESS_SIZE{1'b0}};	
+                        end else begin	
+                            sqsum_raw_bram_addr <= sqsum_raw_bram_addr + 'b1;	
+                        end
                         sqsum_raw_bram_state <= SQSUM_ACTION_TO_SLAVE;
                     end else begin
                         sqsum_raw_bram_state <= SQSUM_WAITING_FOR_SLAVE;
                     end  
                 end
-                default: sqsum_raw_bram_state <= SQSUM_READ_WAIT;
+                SQSUM_DONE: begin
+                    sqsum_raw_bram_state <= SQSUM_DONE;
+                    sqsum_raw_bram_last <= 1'b0;
+                    sqsum_raw_bram_valid <= 1'b0;
+                end
+                default: sqsum_raw_bram_state <= SQSUM_READ_WAIT_1;
             endcase
         end
     end  
@@ -207,22 +231,24 @@ module top_level(   input clk_100mhz,
     
     //custom module (was written with a Vivado AXI-Streaming Wizard so format looks inhuman
     //this is because it was a template I customized.
+//    square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
+//                            .s00_axis_tready(sw[5:4] == 'd1 ? 1'b1 : sqsum_raw_bram_ready),
+//                            .s00_axis_tdata(sw[5:4] == 'd1 ? fft_out_data : sqsum_raw_bram_data),
+//                            .s00_axis_tlast(sw[5:4] == 'd1 ? fft_out_last : sqsum_raw_bram_last),
+//                            .s00_axis_tvalid(sw[5:4] == 'd1 ? fft_out_valid : sqsum_raw_bram_valid),
+//                            .m00_axis_aclk(clk_100mhz),
+//                            .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_valid),
+//                            .m00_axis_tdata(sqsum_data),.m00_axis_tlast(sqsum_last),
+//                            .m00_axis_tready(sqsum_ready));
     square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
-                            .s00_axis_tready(sw[5:4] == 'd1 ? 1'b1 : sqsum_raw_bram_ready),
-                            .s00_axis_tdata(sw[5:4] == 'd1 ? fft_out_data : sqsum_raw_bram_data),
-                            .s00_axis_tlast(sw[5:4] == 'd1 ? fft_out_last : sqsum_raw_bram_last),
-                            .s00_axis_tvalid(sw[5:4] == 'd1 ? fft_out_valid : sqsum_raw_bram_valid),
+                            .s00_axis_tready(sqsum_raw_bram_ready),
+                            .s00_axis_tdata(sqsum_raw_bram_data),
+                            .s00_axis_tlast(sqsum_raw_bram_last),
+                            .s00_axis_tvalid(sqsum_raw_bram_valid),
                             .m00_axis_aclk(clk_100mhz),
                             .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_valid),
                             .m00_axis_tdata(sqsum_data),.m00_axis_tlast(sqsum_last),
                             .m00_axis_tready(sqsum_ready));
-//    square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
-//                            .s00_axis_tready(sqsum_raw_bram_ready),
-//                            .s00_axis_tdata(sqsum_raw_bram_data),.s00_axis_tlast(sqsum_raw_bram_last),
-//                            .s00_axis_tvalid(sqsum_raw_bram_valid),.m00_axis_aclk(clk_100mhz),
-//                            .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_valid),
-//                            .m00_axis_tdata(sqsum_data),.m00_axis_tlast(sqsum_last),
-//                            .m00_axis_tready(sqsum_ready));
 //    square_and_sum_v1_0 mysq(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
 //                            .s00_axis_tready(fft_out_ready),
 //                            .s00_axis_tdata(fft_out_data),.s00_axis_tlast(fft_out_last),
@@ -268,17 +294,17 @@ module top_level(   input clk_100mhz,
                      .s_axis_cartesian_tready(fifo_ready),.m_axis_dout_tdata(sqrt_data),
                      .m_axis_dout_tvalid(sqrt_valid), .m_axis_dout_tlast(sqrt_last));
     
-    logic [9:0] addr_count;
-    logic [9:0] draw_addr;
-    logic [16:0] spectrogram_count;
-    logic [16:0] spectrogram_draw_addr;
+    logic [ADDRESS_SIZE-1:0] addr_count;
+    logic [ADDRESS_SIZE-1:0] draw_addr;
+    logic [FFT_SAMPLE_SIZE/2:0] spectrogram_count;
+    logic [FFT_SAMPLE_SIZE/2:0] spectrogram_draw_addr;
     
     logic spectrogram_wea;
-    logic [15:0] spectrogram_raw_amp_in;
+    logic [FFT_SAMPLE_SIZE/2-1:0] spectrogram_raw_amp_in;
     
-    logic [31:0] raw_amp_out;
-    logic [31:0] shifted_amp_out;
-    logic [15:0] spectrogram_raw_amp_out;
+    logic [FFT_SAMPLE_SIZE-1:0] raw_amp_out;
+    logic [FFT_SAMPLE_SIZE-1:0] shifted_amp_out;
+    logic [FFT_SAMPLE_SIZE/2-1:0] spectrogram_raw_amp_out;
     
     parameter SPECTROGRAM_BRAM_WIDTH = 256;
     parameter SPECTROGRAM_BRAM_HEIGHT = 512;
@@ -351,10 +377,13 @@ module top_level(   input clk_100mhz,
                     .vga_r(vga_r), .vga_b(vga_b), .vga_g(vga_g), .vga_hs(vga_hs), .vga_vs(vga_vs), 
                     .aud_pwm(aud_pwm));  
                     
-    logic [9:0] fftk_addr;
-    logic [31:0] fftk_ampl;
-    logic [31:0] fft2k_ampl;
-    logic [31:0] fft3k_ampl;
+    localparam HPS_NUMBER_OF_TERMS = 3;	
+    localparam HPS_ADDRESS_MAX = FFT_WINDOW_SIZE/2/HPS_NUMBER_OF_TERMS-1;	
+    	
+    logic [ADDRESS_SIZE-1:0] fftk_addr;	
+    logic [FFT_SAMPLE_SIZE-1:0] fftk_ampl;	
+    logic [FFT_SAMPLE_SIZE-1:0] fft2k_ampl;	
+    logic [FFT_SAMPLE_SIZE-1:0] fft3k_ampl;
     
     value_bram fftk (.addra(addr_count), .clka(clk_100mhz), .dina({8'b0,sqrt_data}),
                     .douta(), .ena(1'b1), .wea(sqrt_valid),.dinb(0),
@@ -369,75 +398,90 @@ module top_level(   input clk_100mhz,
                     .addrb(fftk_addr*3), .clkb(pixel_clk), .doutb(fft3k_ampl),
                     .web(1'b0), .enb(1'b1));
                     
-    localparam FFT_WINDOW_SIZE = 1024;
-    localparam FFT_SAMPLE_SIZE = 32;
-    localparam HPS_NUMBER_OF_TERMS = 3;
-           
-    logic s_ready;
-    logic [FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS-1:0] s_data;
-    logic s_last;
-    logic s_valid;
-    logic m_valid;
-    logic [9:0] m_data;
+    logic hps_s_ready;	
+    logic [FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS-1:0] hps_s_data;	
+    logic hps_s_last;	
+    logic hps_s_valid;	
+    logic hps_m_valid;	
+    logic [ADDRESS_SIZE-1:0] hps_m_data;
     
-    freq_detect_v3_0 #(.FFT_WINDOW_SIZE(FFT_WINDOW_SIZE), .FFT_SAMPLE_SIZE(FFT_SAMPLE_SIZE)) 
-        my_freq_detect(.clk(pixel_clk), .resetn(1'b1),
-                            .s00_axis_tready(s_ready),
-                            .s00_axis_tdata(s_data),.s00_axis_tlast(s_last),
-                            .s00_axis_tvalid(s_valid),
-                            .m00_axis_tvalid(m_valid),
-                            .m00_axis_tdata(m_data),
-                            .m00_axis_tready());
+        freq_detect_v3_0 #(.FFT_WINDOW_SIZE(FFT_WINDOW_SIZE), .FFT_SAMPLE_SIZE(FFT_SAMPLE_SIZE)) 	
+        my_freq_detect(.clk(pixel_clk), .resetn(1'b1),	
+                            .s00_axis_tready(hps_s_ready),	
+                            .s00_axis_tdata(hps_s_data),.s00_axis_tlast(hps_s_last),	
+                            .s00_axis_tvalid(hps_s_valid),	
+                            .m00_axis_tvalid(hps_m_valid),	
+                            .m00_axis_tdata(hps_m_data),	
+                            .m00_axis_tready());	
                             
-    typedef enum {READ_WAIT, ACTION_TO_SLAVE, WAITING_FOR_SLAVE} State;
-    State mem_state;
-    logic [9:0] nat_freq;
-    
-    always_ff @(posedge pixel_clk) begin
-        if (btnd == 1'b1) begin // kinda reset
-            fftk_addr <= 10'b0;
-            mem_state <= READ_WAIT;
-            s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};
-            s_last <= 1'b0;
-            s_valid <= 1'b0;
-            nat_freq <=10'b0;
-        end else begin
-            case (mem_state) 
-                READ_WAIT: begin
-                        mem_state <= ACTION_TO_SLAVE;
-                    end
-                ACTION_TO_SLAVE: begin
-                        if (fftk_addr == 10'd170) begin
-                            s_last <=1'b1;
-                            fftk_addr <= 10'd0;
-                        end else begin
-                            fftk_addr <= fftk_addr + 10'b1;
-                            s_last <=1'b0;
-                        end
-                        if (fftk_addr < 10'd2)
-                            s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};
-                        else
-                            s_data <= {fftk_ampl, fft2k_ampl, fft3k_ampl};
-                        s_valid <= 1'b1;
-                        mem_state <= WAITING_FOR_SLAVE;
-                    end
-                WAITING_FOR_SLAVE: begin
-                        if (s_ready == 1'b1) begin
-                            s_valid <= 1'b0;
-                            s_last <= 1'b0;
-                            mem_state <= ACTION_TO_SLAVE;
-                        end else begin
-                            mem_state <= WAITING_FOR_SLAVE;
-                        end  
-                    end
-                default: mem_state <= READ_WAIT;
-            endcase 
-            
-            if (m_valid == 1'b1) begin
-                nat_freq <= m_data;
-            end
-        end
-    end  
+    typedef enum {READ_WAIT_INIT_1, READ_WAIT_INIT_2, ACTION_TO_SLAVE, WAITING_FOR_SLAVE, DONE} MemState;  	
+    MemState hps_mem_state;	
+    logic [ADDRESS_SIZE-1:0] nat_freq;	
+    	
+    always_ff @(posedge pixel_clk) begin	
+        if (sqrt_last == 1'b1 && sqrt_valid == 1'b1) begin // kinda reset	
+            fftk_addr <= {ADDRESS_SIZE{1'b0}};	
+            hps_mem_state <= READ_WAIT_INIT_1;	
+            hps_s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};	
+            hps_s_last <= 1'b0;	
+            hps_s_valid <= 1'b0;	
+            nat_freq <= {ADDRESS_SIZE{1'b0}};	
+        end else begin	
+            case (hps_mem_state) 	
+            	
+                READ_WAIT_INIT_1: begin	
+                        hps_mem_state <= READ_WAIT_INIT_2;	
+                end	
+                	
+                READ_WAIT_INIT_2: begin	
+                        hps_mem_state <= ACTION_TO_SLAVE;	
+                        fftk_addr <= fftk_addr + 'b1;	
+                end	
+                	
+                ACTION_TO_SLAVE: begin	
+                    if (fftk_addr == 1)	
+                        hps_s_data <= {FFT_SAMPLE_SIZE*HPS_NUMBER_OF_TERMS{1'b0}};	
+                    else	
+                        hps_s_data <= {fftk_ampl, fft2k_ampl, fft3k_ampl};	
+                    hps_s_valid <= 1'b1;	
+                      	
+                    if (fftk_addr == 0) begin	
+                        hps_s_last <=1'b1;	
+                        hps_mem_state <= DONE;	
+                    end else begin	
+                        hps_mem_state <= WAITING_FOR_SLAVE;	
+                    end	
+               end	
+                    	
+                WAITING_FOR_SLAVE: begin	
+                    if (hps_s_ready == 1'b1) begin	
+                        hps_s_valid <= 1'b0;	
+                        hps_s_last <= 1'b0;	
+                        if (fftk_addr == HPS_ADDRESS_MAX) begin	
+                            fftk_addr <={ADDRESS_SIZE{1'b0}};	
+                        end else begin	
+                            fftk_addr <= fftk_addr + 'b1;	
+                        end	
+                        hps_mem_state <= ACTION_TO_SLAVE;	
+                    end else begin	
+                        hps_mem_state <= WAITING_FOR_SLAVE;	
+                    end      	
+                end	
+                	
+                DONE: begin	
+                    hps_mem_state <= DONE;	
+                    hps_s_last <=1'b0;	
+                    hps_s_valid <= 1'b0;	
+                end	
+                	
+                default: hps_mem_state <= READ_WAIT_INIT_1;	
+            endcase 	
+            	
+            if (hps_m_valid == 1'b1) begin	
+                nat_freq <= hps_m_data;	
+            end	
+        end	
+    end
     
 endmodule
 
