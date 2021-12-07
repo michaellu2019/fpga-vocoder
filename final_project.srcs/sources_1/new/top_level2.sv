@@ -206,9 +206,9 @@ module top_level_2(   input clk_100mhz,
     logic [2*BIT_DEPTH-1:0] data_from_copy1_bram;
     logic [ADDRESS_BIT_WIDTH-1:0] copy1_bram_write_addr, copy1_bram_read_addr;
     
-    bram_32bit copy1 (
+    bram_32bit shifted_fft_bram (
         .clka(clk_100mhz),    // input wire clka
-        .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
+        .wea(write_en),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
         .addra(copy1_bram_write_addr),  // input wire [10 : 0] addra
         .dina(data_to_copy1_bram),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
@@ -278,14 +278,14 @@ module top_level_2(   input clk_100mhz,
             data_to_fwd_fft_bram5 <= fft_out_data1;
             data_to_fwd_fft_bram6 <= fft_out_data1;
         end
-        if (fwd_fft_bram_valid_out) begin
+        /*if (fwd_fft_bram_valid_out) begin
             copy1_bram_write_addr <= fwd_fft_bram_last_out ? NFFT_WINDOW_SIZE-1 : copy1_bram_write_addr + 1'b1;
             data_to_copy1_bram <= data_from_fwd_fft_bram;
         end
         if (copy1_bram_valid_out) begin
             copy2_bram_write_addr <= copy1_bram_last_out ? NFFT_WINDOW_SIZE-1 : copy2_bram_write_addr + 1'b1;
             data_to_copy2_bram <= data_from_copy1_bram;
-        end
+        end*/
         if (inv_fft_out_valid) begin
             inv_fft_bram_write_addr <= inv_fft_out_last ? NFFT_WINDOW_SIZE-1 : inv_fft_bram_write_addr + 1'b1; 
             data_to_inv_fft_bram <= inv_fft_out_data;
@@ -295,23 +295,21 @@ module top_level_2(   input clk_100mhz,
     end
     
     typedef enum {READ_WAIT_INIT_1, READ_WAIT_INIT_2, ACTION_TO_SLAVE, WAITING_FOR_SLAVE, DONE} MemState;
-    MemState input_aud_bram_state;   
+    MemState input_aud_bram_state, input_aud_bram1_state;   
     MemState fwd_fft_bram_state;
     MemState copy1_bram_state;
     MemState copy2_bram_state;
    
-    logic input_aud_bram_valid_out;
-    logic input_aud_bram_last_out;
-    logic fwd_fft_bram_valid_out;
-    logic fwd_fft_bram_last_out;
-    logic copy1_bram_valid_out;
-    logic copy1_bram_last_out;
-    logic copy2_bram_valid_out;
-    logic copy2_bram_last_out;
+    logic input_aud_bram_valid_out, input_aud_bram_last_out;
+    logic input_aud_bram1_valid_out, input_aud_bram1_last_out;
+    logic fwd_fft_bram_valid_out, fwd_fft_bram_last_out;
+    logic copy1_bram_valid_out, copy1_bram_last_out;
+    logic copy2_bram_valid_out, copy2_bram_last_out;
     
     always_ff @(posedge clk_100mhz) begin
         if (rst_in) begin
             input_aud_bram_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
+            input_aud_bram1_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
         end
         if (recorder_last_out && recorder_valid_out) begin
             fft_data_counter <= {ADDRESS_BIT_WIDTH{1'b0}};
@@ -362,6 +360,55 @@ module top_level_2(   input clk_100mhz,
             endcase
         end
         
+        if (recorder_last_out && recorder_valid_out) begin
+            fft_data_counter1 <= {ADDRESS_BIT_WIDTH{1'b0}};
+            input_aud_bram1_state <= READ_WAIT_INIT_1;
+            input_aud_bram1_last_out <= 1'b0;
+            input_aud_bram1_valid_out <= 1'b0;
+        end else begin
+            case (input_aud_bram1_state) 
+                READ_WAIT_INIT_1: begin
+                    input_aud_bram1_state <= READ_WAIT_INIT_2;
+                end
+                READ_WAIT_INIT_2: begin
+                    input_aud_bram1_state <= ACTION_TO_SLAVE;
+                    fft_data_counter1 <= fft_data_counter1 + 1'b1;
+                    input_aud_bram1_read_addr <= input_aud_bram1_read_addr + 'b1;
+                end
+                ACTION_TO_SLAVE: begin
+                    input_aud_bram1_valid_out <= 1'b1;
+                    if (fft_data_counter1 == 0) begin
+                        input_aud_bram1_last_out <= 1'b1;
+                        input_aud_bram1_state <= DONE;
+                    end else begin 
+                        input_aud_bram1_state <= WAITING_FOR_SLAVE;
+                    end
+                end
+                WAITING_FOR_SLAVE: begin
+                    if (fft_ready1 == 1'b1) begin
+                        input_aud_bram1_valid_out <= 1'b0;
+                        input_aud_bram1_last_out <= 1'b0;
+                        if (fft_data_counter1 == NFFT_WINDOW_SIZE-1) begin 
+                            input_aud_bram1_read_addr <= input_aud_bram1_read_addr + INPUT_WINDOW_SIZE - 1;
+                            fft_data_counter1 <={ADDRESS_BIT_WIDTH{1'b0}}; 
+                        end else begin  
+                            input_aud_bram1_read_addr <= input_aud_bram1_read_addr + 1'b1;
+                            fft_data_counter1 <= fft_data_counter1 + 'b1;   
+                        end
+                        input_aud_bram1_state <= ACTION_TO_SLAVE;
+                    end else begin
+                        input_aud_bram1_state <= WAITING_FOR_SLAVE;
+                    end  
+                end
+                DONE: begin
+                    input_aud_bram1_state <= DONE;
+                    input_aud_bram1_last_out <= 1'b0;
+                    input_aud_bram1_valid_out <= 1'b0;
+                end
+                default: input_aud_bram1_state <= READ_WAIT_INIT_1;
+            endcase
+        end
+        /*
         if (fft_out_last && fft_out_valid) begin
             fwd_fft_bram_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
             fwd_fft_bram_state <= READ_WAIT_INIT_1;
@@ -402,9 +449,9 @@ module top_level_2(   input clk_100mhz,
                 end
                 default: fwd_fft_bram_state <= READ_WAIT_INIT_1;
             endcase
-        end
+        end*/
         
-        if (fwd_fft_bram_last_out && fwd_fft_bram_valid_out) begin
+        if (shift_done) begin
             copy1_bram_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
             copy1_bram_state <= READ_WAIT_INIT_1;
             copy1_bram_last_out <= 1'b0;
@@ -428,14 +475,18 @@ module top_level_2(   input clk_100mhz,
                     end
                 end
                 WAITING_FOR_SLAVE: begin
-                    copy1_bram_valid_out <= 1'b0;
-                    copy1_bram_last_out <= 1'b0;
-                    if (copy1_bram_read_addr == NFFT_WINDOW_SIZE-1) begin 
-                        copy1_bram_read_addr <={ADDRESS_BIT_WIDTH{1'b0}}; 
-                    end else begin  
-                        copy1_bram_read_addr <= copy1_bram_read_addr + 'b1;   
+                    if (inv_fft_ready == 1'b1) begin
+                        copy1_bram_valid_out <= 1'b0;
+                        copy1_bram_last_out <= 1'b0;
+                        if (copy1_bram_read_addr == NFFT_WINDOW_SIZE-1) begin 
+                            copy1_bram_read_addr <={ADDRESS_BIT_WIDTH{1'b0}}; 
+                        end else begin  
+                            copy1_bram_read_addr <= copy1_bram_read_addr + 'b1;   
+                        end
+                        copy1_bram_state <= ACTION_TO_SLAVE;
+                    end else begin
+                        copy1_bram_state <= WAITING_FOR_SLAVE;
                     end
-                    copy1_bram_state <= ACTION_TO_SLAVE;
                 end
                 DONE: begin
                     copy1_bram_state <= DONE;
@@ -445,7 +496,7 @@ module top_level_2(   input clk_100mhz,
                 default: copy1_bram_state <= READ_WAIT_INIT_1;
             endcase
         end
-        
+        /*
         if (copy1_bram_last_out && copy1_bram_valid_out) begin
             copy2_bram_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
             copy2_bram_state <= READ_WAIT_INIT_1;
@@ -490,7 +541,7 @@ module top_level_2(   input clk_100mhz,
                 end
                 default: copy2_bram_state <= READ_WAIT_INIT_1;
             endcase
-        end
+        end*/
     end
 
     xadc_wiz_0 my_adc ( .dclk_in(clk_100mhz), .daddr_in(8'h13), //read from 0x13 for a
@@ -500,7 +551,7 @@ module top_level_2(   input clk_100mhz,
                         .do_out(adc_data),.drdy_out(adc_ready),
                         .den_in(1), .dwe_in(0));
  
-    recorder myrec( .clk_in(clk_100mhz),.rst_in(btnd),
+    recorder myrec( .clk_in(clk_100mhz),.rst_in(rst_in),
                     .ready_in(sample_trigger),.filter_in(sw[11]),
                     .mic_in(scaled_signed_adc_data),
                     .write_addr(input_aud_bram_write_addr),
@@ -513,18 +564,19 @@ module top_level_2(   input clk_100mhz,
                                 .douta(hann_coeff)  // output wire [10 : 0] douta
     );
     
-    //FFT module:
-    //CONFIGURATION:
-    //1 channel
-    //transform length: 1024
-    //target clock frequency: 100 MHz
-    //target Data throughput: 50 Msps
-    //Auto-select architecture
-    //IMPLEMENTATION:
-    //Fixed Point, Scaled, Truncation
-    //MAKE SURE TO SET NATURAL ORDER FOR OUTPUT ORDERING
-    //Input Data Width, Phase Factor Width: Both 16 bits
-    //Result uses 12 DSP48 Slices and 6 Block RAMs (under Impl Details)
+    /*fwd_fft fwd_fft_32bit(
+      .clk_in(clk_100mhz),              // 100MHz system clock
+      .rst_in(rst_in),                // 1 to reset to initial state
+      .fft_in_data({16'b0, data_from_input_aud_bram}),
+      .fft_in_last(recorder_last_out),
+      .fft_in_valid(recorder_valid_out),
+      .fft_in_bram_read_addr(input_aud_bram_read_addr),
+      .fft_out_bram_write_addr(fwd_fft_bram_write_addr),        
+      .fft_out_data(fft_out_data),
+      .fft_out_last(fft_out_last),
+      .fft_out_valid(fft_out_valid)
+    );*/
+    
     xfft_0 fwd_fft (.aclk(clk_100mhz), .s_axis_data_tdata(sw[10] ? {1'b0,hann_data_product[11+BIT_DEPTH-1:11+1]} : data_from_input_aud_bram), 
                     .s_axis_data_tvalid(input_aud_bram_valid_out),
                     .s_axis_data_tlast(input_aud_bram_last_out), .s_axis_data_tready(fft_ready),
@@ -534,14 +586,30 @@ module top_level_2(   input clk_100mhz,
                     .m_axis_data_tdata(fft_out_data), .m_axis_data_tvalid(fft_out_valid),
                     .m_axis_data_tlast(fft_out_last), .m_axis_data_tready(fft_out_ready));
                    
-    freq_detection_fft fwd_fft2 (.aclk(clk_100mhz), .s_axis_data_tdata(fft_data1), 
-                    .s_axis_data_tvalid(fft_valid1),
-                    .s_axis_data_tlast(fft_last1), .s_axis_data_tready(fft_ready1),
+    freq_detection_fft fwd_fft2 (.aclk(clk_100mhz), .s_axis_data_tdata(data_from_input_aud_bram1), 
+                    .s_axis_data_tvalid(input_aud_bram1_valid_out),
+                    .s_axis_data_tlast(input_aud_bram1_last_out), .s_axis_data_tready(fft_ready1),
                     .s_axis_config_tdata(0), 
-                     .s_axis_config_tvalid(0),
-                     .s_axis_config_tready(),
+                    .s_axis_config_tvalid(0),
+                    .s_axis_config_tready(),
                     .m_axis_data_tdata(fft_out_data1), .m_axis_data_tvalid(fft_out_valid1),
                     .m_axis_data_tlast(fft_out_last1), .m_axis_data_tready(1));
+                    
+    logic [ADDRESS_BIT_WIDTH*2-1:0] coeff_increase;
+    logic [ADDRESS_BIT_WIDTH*2-1:0] coeff_decrease;
+    assign coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'b1;
+    assign coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/4;
+    assign coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'b0;
+    assign coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.8;
+    logic write_en, shift_done;
+                    
+    freq_shift #(.FFT_WINDOW_SIZE(FFT_WINDOW_SIZE), .FFT_SAMPLE_SIZE(FFT_SAMPLE_SIZE)) 
+        my_freq_shift(.clk_in(clk_100mhz), .reset_in(rst_in),
+                      .trigger_in(fft_out_last & fft_out_valid), .coeff_increase_in(coeff_increase), .coeff_decrease_in(coeff_decrease),
+                      .read_data_in(data_from_fwd_fft_bram), .read_addr_out(fwd_fft_bram_read_addr),
+                      .write_data_out(data_to_copy1_bram), .write_addr_out(copy1_bram_write_addr), .write_en_out(write_en),
+                      .shift_done_out(shift_done)
+                      );
                             
     //for debugging commented out, make this whatever size,detail you want:
     //ila_0 myila (.clk(clk_100mhz), .probe0(fifo_data), .probe1(sqrt_data), .probe2(sqsum_data), .probe3(fft_out_data));
@@ -593,9 +661,9 @@ module top_level_2(   input clk_100mhz,
                      .s_axis_cartesian_tready(fifo_ready),.m_axis_dout_tdata(sqrt_data),
                      .m_axis_dout_tvalid(sqrt_valid), .m_axis_dout_tlast(sqrt_last));
                     
-    xfft_0 inv_fft (.aclk(clk_100mhz), .s_axis_data_tdata(data_from_copy2_bram), 
-                    .s_axis_data_tvalid(copy2_bram_valid_out),
-                    .s_axis_data_tlast(copy2_bram_last_out), .s_axis_data_tready(inv_fft_ready),
+    xfft_0 inv_fft (.aclk(clk_100mhz), .s_axis_data_tdata(data_from_copy1_bram), 
+                    .s_axis_data_tvalid(copy1_bram_valid_out),
+                    .s_axis_data_tlast(copy1_bram_last_out), .s_axis_data_tready(inv_fft_ready),
                     .s_axis_config_tdata(0), 
                     .s_axis_config_tvalid(1),
                     .s_axis_config_tready(),
