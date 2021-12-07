@@ -11,7 +11,8 @@ module recorder(
   input wire filter_in,            // 1 when using low-pass filter for audio input
   input wire signed[BIT_DEPTH-1:0] mic_in,         // PCM data from mic
   output logic [ADDRESS_BIT_WIDTH-1:0] write_addr,
-  output logic window_finish,
+  output logic recorder_last,
+  output logic recorder_valid,
   output logic [BIT_DEPTH-1:0] data_out
 );                               
 
@@ -44,11 +45,14 @@ module recorder(
                 data_out <= filter_in ? aud_in_filter_output[BIT_DEPTH-1+10:10] : mic_in;
                 write_addr <= write_addr + 1; 
                 sample_counter <= sample_counter == WINDOW_SIZE-1 ? 0 : sample_counter + 1;
-                if (sample_counter == WINDOW_SIZE-1) window_finish <= 1;
-            end else window_finish <= 0;
+                recorder_valid <= 1;
+                if (sample_counter == WINDOW_SIZE-1) recorder_last <= 1;
+            end 
             aud_in_filter_input <= mic_in;
             count <= count < COUNT-1 ? count + 1 : 0;
-        end else window_finish <= 0;    
+        end 
+        if (recorder_last) recorder_last <= 1'b0; 
+        if (recorder_valid) recorder_valid <= 1'b0;   
     end                        
 endmodule
 
@@ -69,6 +73,7 @@ module playback(
     parameter BIT_DEPTH = 16; 
     parameter ADDRESS_BIT_WIDTH = 11;
     parameter COUNT = 3'd6; // downsampling coefficient
+    parameter start_address = MAX_ADDR - WINDOW_SIZE;
                   
     logic signed [BIT_DEPTH-1:0] aud_out_filter_input;
     logic signed [BIT_DEPTH-1+10:0] aud_out_filter_output;
@@ -81,14 +86,19 @@ module playback(
     always_ff @(posedge clk_in)begin
         if (rst_in) begin
             count <= 0;
-            read_addr <= WINDOW_SIZE-1;
-        end else if (ready_in) begin
+            read_addr <= start_address - 1;
+        end else if (playback_start) begin
+            processing <= 1;
+            read_addr <= start_address - 1;
+            count <= 0;
+        end else if (ready_in && processing) begin
             if (count == COUNT-1) begin
-                read_addr <= read_addr < MAX_ADDR - 1 ? read_addr + 1 : 0; 
+                read_addr <= read_addr < MAX_ADDR - 1 ? read_addr + 1 : start_address -1; 
             end
             aud_out_filter_input <= count == COUNT-1 ? input_data : 0;
             data_out <= filter_in ? aud_out_filter_output[BIT_DEPTH-1+10:10] : input_data;
             count <= count < COUNT-1 ? count + 1 : 0;
+            if (read_addr == MAX_ADDR-1) processing <= 0;
         end     
     end                     
 endmodule 

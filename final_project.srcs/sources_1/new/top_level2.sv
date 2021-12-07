@@ -26,43 +26,8 @@ module top_level_2(   input clk_100mhz,
     parameter BIT_DEPTH = 16;
     parameter INPUT_WINDOW_SIZE = 512;
     parameter WINDOW_NUM = 4;
-    parameter NFFT_WINDOW_SIZE = 2048;
-    parameter ADDRESS_BIT_WIDTH = 11;
-    
-    // Input Audio BRAM
-    logic [BIT_DEPTH-1:0] data_to_input_aud_bram;
-    logic [BIT_DEPTH-1:0] data_from_input_aud_bram;
-    logic [ADDRESS_BIT_WIDTH-1:0] write_addr1, read_addr1;
-    
-    logic [7:0] data_to_input_aud_bram1;
-    logic [7:0] data_from_input_aud_bram1;
-    logic [ADDRESS_BIT_WIDTH-1:0] write_addr11, read_addr11;
-    
-    // Forward FFT BRAM
-    logic [2*BIT_DEPTH-1:0] data_to_fwd_fft_bram;
-    logic [2*BIT_DEPTH-1:0] data_from_fwd_fft_bram;
-    logic [ADDRESS_BIT_WIDTH-1:0] write_addr2, read_addr2;
-    
-    logic [15:0] data_to_fwd_fft_bram1, data_to_fwd_fft_bram2, data_to_fwd_fft_bram3, data_to_fwd_fft_bram4, data_to_fwd_fft_bram5, data_to_fwd_fft_bram6;
-    logic [15:0] data_from_fwd_fft_bram1, data_from_fwd_fft_bram2, data_from_fwd_fft_bram3, data_from_fwd_fft_bram4, data_from_fwd_fft_bram5, data_from_fwd_fft_bram6;
-    logic [ADDRESS_BIT_WIDTH-1:0] write_addr21, write_addr22, write_addr23, write_addr24, write_addr25, write_addr26;
-    logic [ADDRESS_BIT_WIDTH-1:0] read_addr21, read_addr22, read_addr23, read_addr24, read_addr25, read_addr26;
-    
-    // Copy BRAM
-    logic copy1_uploading;
-    logic [2*BIT_DEPTH-1:0] data_to_copy1_bram;
-    logic [2*BIT_DEPTH-1:0] data_from_copy1_bram;
-    logic [ADDRESS_BIT_WIDTH-1:0] write_addr31, read_addr31;
-    
-    logic copy2_uploading;
-    logic [2*BIT_DEPTH-1:0] data_to_copy2_bram;
-    logic [2*BIT_DEPTH-1:0] data_from_copy2_bram;
-    logic [ADDRESS_BIT_WIDTH-1:0] write_addr32, read_addr32;
-    
-    // Inverse FFT BRAM
-    logic [2*BIT_DEPTH-1:0] data_to_inv_fft_bram;
-    logic [2*BIT_DEPTH-1:0] data_from_inv_fft_bram;
-    logic [ADDRESS_BIT_WIDTH-1:0] write_addr4, read_addr4;
+    parameter NFFT_WINDOW_SIZE = INPUT_WINDOW_SIZE*WINDOW_NUM;
+    parameter ADDRESS_BIT_WIDTH = $clog2(NFFT_WINDOW_SIZE);
     
     // Downsampling 
     parameter SAMPLE_COUNT = 2082;//gets approximately (will generate audio at approx 48 kHz sample rate.
@@ -75,11 +40,10 @@ module top_level_2(   input clk_100mhz,
     logic [BIT_DEPTH-1:0] scaled_adc_data;
     logic [BIT_DEPTH-1:0] scaled_signed_adc_data;
     
-    logic recent_window_finish;
+    logic recorder_valid_out, recorder_last_out;
     logic playback_start;
     logic [BIT_DEPTH-1:0] recorder_data, playback_data, vol_out; 
-    
-    //parameter SAMPLE_COUNT = 4164; //2082;//gets approximately (will generate audio at approx 48 kHz sample rate.       
+        
     logic pwm_val; //pwm signal (HI/LO)
     
     // Visualizer
@@ -97,14 +61,12 @@ module top_level_2(   input clk_100mhz,
     assign sample_trigger = (sample_counter == SAMPLE_COUNT);
     
     // Forward FFT
-    logic fft_uploading; // used to know when to upload to FFT core
     logic fft_ready, fft_valid, fft_last;
     logic [2*BIT_DEPTH-1:0] fft_data;
     logic [ADDRESS_BIT_WIDTH-1:0] fft_data_counter;
     logic fft_out_ready, fft_out_valid, fft_out_last;
     logic [2*BIT_DEPTH-1:0] fft_out_data;
     
-    logic fft_uploading1;
     logic fft_ready1, fft_valid1, fft_last1;
     logic [15:0] fft_data1;
     logic [ADDRESS_BIT_WIDTH-1:0] fft_data_counter1;
@@ -112,7 +74,6 @@ module top_level_2(   input clk_100mhz,
     logic [15:0] fft_out_data1;
     
     // Inverse FFT
-    logic inv_fft_uploading;
     logic inv_fft_valid, inv_fft_last, inv_fft_ready;
     logic [2*BIT_DEPTH-1:0] inv_fft_data;
     logic [ADDRESS_BIT_WIDTH-1:0] inv_fft_data_counter;
@@ -128,63 +89,65 @@ module top_level_2(   input clk_100mhz,
     logic pixel_clk;
     vga_clk myvga (.clk_in1(clk_100mhz), .clk_out1(pixel_clk));
     
+    // Input Audio BRAM
+    logic [BIT_DEPTH-1:0] data_to_input_aud_bram;
+    logic [BIT_DEPTH-1:0] data_from_input_aud_bram;
+    logic [ADDRESS_BIT_WIDTH-1:0] input_aud_bram_write_addr, input_aud_bram_read_addr;
     assign data_to_input_aud_bram = recorder_data;
 
     bram_16bit input_audio_bram (
         .clka(clk_100mhz),    // input wire clka
         .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
-        .addra(write_addr1),  // input wire [10 : 0] addra
+        .addra(input_aud_bram_write_addr),  // input wire [10 : 0] addra
         .dina(data_to_input_aud_bram),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
-        .addrb(read_addr1),  // input wire [10 : 0] addrb
+        .addrb(input_aud_bram_read_addr),  // input wire [10 : 0] addrb
         .doutb(data_from_input_aud_bram)  // output wire [11 : 0] doutb
     ); 
     
-    assign write_addr11 = write_addr1;
+    logic [7:0] data_to_input_aud_bram1;
+    logic [7:0] data_from_input_aud_bram1;
+    logic [ADDRESS_BIT_WIDTH-1:0] input_aud_bram1_write_addr, input_aud_bram1_read_addr;
+    assign input_aud_bram1_write_addr = input_aud_bram_write_addr;
     assign data_to_input_aud_bram1 = recorder_data[BIT_DEPTH-1: BIT_DEPTH-1-7];
 
     bram_8bit input_audio_bram1 (
         .clka(clk_100mhz),    // input wire clka
         .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
-        .addra(write_addr11),  // input wire [10 : 0] addra
+        .addra(input_aud_bram1_write_addr),  // input wire [10 : 0] addra
         .dina(data_to_input_aud_bram1),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
-        .addrb(read_addr11),  // input wire [10 : 0] addrb
+        .addrb(input_aud_bram1_read_addr),  // input wire [10 : 0] addrb
         .doutb(data_from_input_aud_bram1)  // output wire [11 : 0] doutb
     );  
-    
-    //assign data_to_fwd_fft_bram = fft_out_data;
-    // assign read_addr2 = write_addr2-1;
 
+    // Forward FFT BRAM
+    logic [2*BIT_DEPTH-1:0] data_to_fwd_fft_bram;
+    logic [2*BIT_DEPTH-1:0] data_from_fwd_fft_bram;
+    logic [ADDRESS_BIT_WIDTH-1:0] fwd_fft_bram_write_addr, fwd_fft_bram_read_addr;
+    
     bram_32bit fwd_fft_bram (
         .clka(clk_100mhz),    // input wire clka
         .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
-        .addra(write_addr2),  // input wire [10 : 0] addra
+        .addra(fwd_fft_bram_write_addr),  // input wire [10 : 0] addra
         .dina(data_to_fwd_fft_bram),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
-        .addrb(read_addr2),  // input wire [10 : 0] addrb
+        .addrb(fwd_fft_bram_read_addr),  // input wire [10 : 0] addrb
         .doutb(data_from_fwd_fft_bram)  // output wire [11 : 0] doutb
     ); 
     
-    assign data_to_fwd_fft_bram1 = fft_out_data1;
-    assign data_to_fwd_fft_bram2 = fft_out_data1;
-    assign data_to_fwd_fft_bram3 = fft_out_data1;
-    assign data_to_fwd_fft_bram4 = fft_out_data1;
-    assign data_to_fwd_fft_bram5 = fft_out_data1;
-    assign data_to_fwd_fft_bram6 = fft_out_data1;
-    assign write_addr22 = write_addr21;
-    assign write_addr23 = write_addr21;
-    assign write_addr24 = write_addr21;
-    assign write_addr25 = write_addr21;
-    assign write_addr26 = write_addr21;
+    logic [15:0] data_to_fwd_fft_bram1, data_to_fwd_fft_bram2, data_to_fwd_fft_bram3, data_to_fwd_fft_bram4, data_to_fwd_fft_bram5, data_to_fwd_fft_bram6;
+    logic [15:0] data_from_fwd_fft_bram1, data_from_fwd_fft_bram2, data_from_fwd_fft_bram3, data_from_fwd_fft_bram4, data_from_fwd_fft_bram5, data_from_fwd_fft_bram6;
+    logic [ADDRESS_BIT_WIDTH-1:0] fft_bram1_addr_in, fft_bram2_addr_in, fft_bram3_addr_in, fft_bram4_addr_in, fft_bram5_addr_in, fft_bram6_addr_in;
+    logic [ADDRESS_BIT_WIDTH-1:0] fft_bram1_addr_out, fft_bram2_addr_out, fft_bram3_addr_out, fft_bram4_addr_out, fft_bram5_addr_out, fft_bram6_addr_out;
     
    bram_16bit fwd_fft_bram1 (
         .clka(clk_100mhz),    // input wire clka
         .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
-        .addra(write_addr21),  // input wire [10 : 0] addra
+        .addra(fft_bram1_addr_in),  // input wire [10 : 0] addra
         .dina(data_to_fwd_fft_bram1),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
-        .addrb(read_addr21),  // input wire [10 : 0] addrb
+        .addrb(fft_bram1_addr_out),  // input wire [10 : 0] addrb
         .doutb(data_from_fwd_fft_bram1)  // output wire [11 : 0] doutb
     );
 
@@ -238,41 +201,47 @@ module top_level_2(   input clk_100mhz,
         .doutb(data_from_fwd_fft_bram6)  // output wire [11 : 0] doutb
     );
     
-    assign write_addr31 = read_addr2;
-    assign data_to_copy1_bram = data_from_fwd_fft_bram;
+    // Copy BRAM
+    logic [2*BIT_DEPTH-1:0] data_to_copy1_bram;
+    logic [2*BIT_DEPTH-1:0] data_from_copy1_bram;
+    logic [ADDRESS_BIT_WIDTH-1:0] copy1_bram_write_addr, copy1_bram_read_addr;
     
     bram_32bit copy1 (
         .clka(clk_100mhz),    // input wire clka
         .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
-        .addra(write_addr31),  // input wire [10 : 0] addra
+        .addra(copy1_bram_write_addr),  // input wire [10 : 0] addra
         .dina(data_to_copy1_bram),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
-        .addrb(read_addr31),  // input wire [10 : 0] addrb
+        .addrb(copy1_bram_read_addr),  // input wire [10 : 0] addrb
         .doutb(data_from_copy1_bram)  // output wire [11 : 0] doutb
     );
     
-    assign write_addr32 = read_addr31;
-    assign data_to_copy2_bram = data_from_copy1_bram;
+    logic [2*BIT_DEPTH-1:0] data_to_copy2_bram;
+    logic [2*BIT_DEPTH-1:0] data_from_copy2_bram;
+    logic [ADDRESS_BIT_WIDTH-1:0] copy2_bram_write_addr, copy2_bram_read_addr;
     
     bram_32bit copy2 (
         .clka(clk_100mhz),    // input wire clka
         .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
-        .addra(write_addr32),  // input wire [10 : 0] addra
+        .addra(copy2_bram_write_addr),  // input wire [10 : 0] addra
         .dina(data_to_copy2_bram),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
-        .addrb(read_addr32),  // input wire [10 : 0] addrb
+        .addrb(copy2_bram_read_addr),  // input wire [10 : 0] addrb
         .doutb(data_from_copy2_bram)  // output wire [11 : 0] doutb
     );
     
-    //assign data_to_inv_fft_bram = inv_fft_out_data;
+    // Inverse FFT BRAM
+    logic [2*BIT_DEPTH-1:0] data_to_inv_fft_bram;
+    logic [2*BIT_DEPTH-1:0] data_from_inv_fft_bram;
+    logic [ADDRESS_BIT_WIDTH-1:0] inv_fft_bram_write_addr, inv_fft_bram_read_addr;
 
     bram_32bit inv_fft_bram (
         .clka(clk_100mhz),    // input wire clka
         .wea(1),      // input wire [0 : 0] wea <-- PORT A ONLY FOR WRITING
-        .addra(write_addr4),  // input wire [10 : 0] addra
+        .addra(inv_fft_bram_write_addr),  // input wire [10 : 0] addra
         .dina(data_to_inv_fft_bram),    // input wire [11 : 0] dina
         .clkb(clk_100mhz),    // input wire clkb
-        .addrb(read_addr4),  // input wire [10 : 0] addrb
+        .addrb(inv_fft_bram_read_addr),  // input wire [10 : 0] addrb
         .doutb(data_from_inv_fft_bram)  // output wire [11 : 0] doutb
     );  
     
@@ -281,85 +250,248 @@ module top_level_2(   input clk_100mhz,
     logic [2:0] count, count1, inv_count;
 
     always_ff @(posedge clk_100mhz)begin
+        if (rst_in) begin
+            fwd_fft_bram_write_addr <= 0;
+        end
         if (sample_counter == SAMPLE_COUNT) sample_counter <= 16'b0;
         else sample_counter <= sample_counter + 16'b1;
         
         if (sample_trigger) begin // 48kHz sampling rate
             scaled_adc_data <= 16*adc_data;
             scaled_signed_adc_data <= {~scaled_adc_data[15],scaled_adc_data[14:0]}; //convert to signed. incoming data is offset binary
-            // Currently working code
-            if (fft_ready) begin 
-                fft_data_counter <= fft_last ? 0 : fft_data_counter +1;
-                fft_last <= fft_data_counter == NFFT_WINDOW_SIZE-1;
-                fft_valid <= 1'b1;
-                fft_data <= {16'b0, sw[10] ? {1'b0,hann_data_product[11+BIT_DEPTH-1:11+1]} : data_from_input_aud_bram}; //set the FFT DATA here!
-                read_addr1 <= fft_last ? read_addr1 + INPUT_WINDOW_SIZE -1 : read_addr1 + 1;
-            end
-            if (fft_ready1) begin
-                fft_data_counter1 <= fft_last1 ? 0 : fft_data_counter1 + 1;
-                fft_last1 <= fft_data_counter1 == NFFT_WINDOW_SIZE-1;
-                fft_valid1 <= 1'b1;
-                fft_data1 <= data_from_input_aud_bram1; //set the FFT DATA here!
-                read_addr11 <= fft_last1 ? read_addr11 + INPUT_WINDOW_SIZE -1 : read_addr11 + 1;
-            end
-            if (inv_fft_ready) begin
-                inv_fft_data_counter <= inv_fft_last ? 0 : inv_fft_data_counter + 1;
-                inv_fft_last <= inv_fft_data_counter == NFFT_WINDOW_SIZE-1;
-                inv_fft_valid <= 1'b1;
-                inv_fft_data <= data_from_copy2_bram;
-                read_addr32 <= inv_fft_last ? 0 : read_addr32 + 1;
-            end
-            read_addr2 <= read_addr2 + 1;
-            read_addr31 <= read_addr31 + 1;
-        end else begin
-            fft_data <= 0;
-            fft_last <= 0;
-            fft_valid <= 0;
-            fft_data1 <= 0;
-            fft_last1 <= 0;
-            fft_valid1 <= 0;
-            inv_fft_data <= 0;
-            inv_fft_last <= 0;
-            inv_fft_valid <= 0;
-        end  
-        
+        end
         if (fft_out_valid) begin
-            write_addr2 <= fft_out_last ? NFFT_WINDOW_SIZE-1 : write_addr2 + 1'b1;
+            fwd_fft_bram_write_addr <= fft_out_last ? NFFT_WINDOW_SIZE-1 : fwd_fft_bram_write_addr + 1'b1;
             data_to_fwd_fft_bram <= fft_out_data;
-            if (fft_out_last) inv_fft_uploading <= 1;
         end
         if (fft_out_valid1) begin
-            write_addr21 <= fft_out_last1 ? NFFT_WINDOW_SIZE-1 : write_addr21 + 1'b1;
+            fft_bram1_addr_in <= fft_out_last1 ? NFFT_WINDOW_SIZE-1 : fft_bram1_addr_in + 1'b1;
+            fft_bram2_addr_in <= fft_out_last1 ? NFFT_WINDOW_SIZE-1 : fft_bram2_addr_in + 1'b1;
+            fft_bram3_addr_in <= fft_out_last1 ? NFFT_WINDOW_SIZE-1 : fft_bram3_addr_in + 1'b1;
+            fft_bram4_addr_in <= fft_out_last1 ? NFFT_WINDOW_SIZE-1 : fft_bram4_addr_in + 1'b1;
+            fft_bram5_addr_in <= fft_out_last1 ? NFFT_WINDOW_SIZE-1 : fft_bram5_addr_in + 1'b1;
+            fft_bram6_addr_in <= fft_out_last1 ? NFFT_WINDOW_SIZE-1 : fft_bram6_addr_in + 1'b1;
+            data_to_fwd_fft_bram1 <= fft_out_data1;
+            data_to_fwd_fft_bram2 <= fft_out_data1;
+            data_to_fwd_fft_bram3 <= fft_out_data1;
+            data_to_fwd_fft_bram4 <= fft_out_data1;
+            data_to_fwd_fft_bram5 <= fft_out_data1;
+            data_to_fwd_fft_bram6 <= fft_out_data1;
+        end
+        if (fwd_fft_bram_valid_out) begin
+            copy1_bram_write_addr <= fwd_fft_bram_last_out ? NFFT_WINDOW_SIZE-1 : copy1_bram_write_addr + 1'b1;
+            data_to_copy1_bram <= data_from_fwd_fft_bram;
+        end
+        if (copy1_bram_valid_out) begin
+            copy2_bram_write_addr <= copy1_bram_last_out ? NFFT_WINDOW_SIZE-1 : copy2_bram_write_addr + 1'b1;
+            data_to_copy2_bram <= data_from_copy1_bram;
         end
         if (inv_fft_out_valid) begin
-            write_addr4 <= inv_fft_out_last ? NFFT_WINDOW_SIZE-1 : write_addr4 + 1'b1; 
+            inv_fft_bram_write_addr <= inv_fft_out_last ? NFFT_WINDOW_SIZE-1 : inv_fft_bram_write_addr + 1'b1; 
             data_to_inv_fft_bram <= inv_fft_out_data;
             if (inv_fft_out_last) playback_start <= 1;
-        end     
-        
+        end
+        if (playback_start) playback_start <= !playback_start;
     end
     
-    logic [ADDRESS_BIT_WIDTH-1:0] copy1_counter, copy2_counter;
-    /*
-    always_ff @(posedge pixel_clk) begin
-        read_addr2 <= read_addr2 + 1;
-        read_addr31 <= read_addr31 + 1;
-        
-        if (copy1_uploading) begin
-            read_addr2 <= read_addr2 + 1;
-            copy1_counter <= copy1_counter + 1;
-            if (copy1_counter == NFFT_WINDOW_SIZE-1) copy1_uploading <= 0; 
-        end 
-        copy2_uploading <= copy1_uploading;
-        if (copy2_uploading) begin
-            read_addr31 <= read_addr31 + 1;
-            copy2_counter <= copy2_counter + 1;
-            if (copy2_counter == NFFT_WINDOW_SIZE-1) begin
-                copy2_uploading <= 0;
-                inv_fft_uploading <= 1;
-            end
+    typedef enum {READ_WAIT_INIT_1, READ_WAIT_INIT_2, ACTION_TO_SLAVE, WAITING_FOR_SLAVE, DONE} MemState;
+    MemState input_aud_bram_state;   
+    MemState fwd_fft_bram_state;
+    MemState copy1_bram_state;
+    MemState copy2_bram_state;
+   
+    logic input_aud_bram_valid_out;
+    logic input_aud_bram_last_out;
+    logic fwd_fft_bram_valid_out;
+    logic fwd_fft_bram_last_out;
+    logic copy1_bram_valid_out;
+    logic copy1_bram_last_out;
+    logic copy2_bram_valid_out;
+    logic copy2_bram_last_out;
+    
+    always_ff @(posedge clk_100mhz) begin
+        if (rst_in) begin
+            input_aud_bram_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
         end
-    end*/
+        if (recorder_last_out && recorder_valid_out) begin
+            fft_data_counter <= {ADDRESS_BIT_WIDTH{1'b0}};
+            input_aud_bram_state <= READ_WAIT_INIT_1;
+            input_aud_bram_last_out <= 1'b0;
+            input_aud_bram_valid_out <= 1'b0;
+        end else begin
+            case (input_aud_bram_state) 
+                READ_WAIT_INIT_1: begin
+                    input_aud_bram_state <= READ_WAIT_INIT_2;
+                end
+                READ_WAIT_INIT_2: begin
+                    input_aud_bram_state <= ACTION_TO_SLAVE;
+                    fft_data_counter <= fft_data_counter + 1'b1;
+                    input_aud_bram_read_addr <= input_aud_bram_read_addr + 'b1;
+                end
+                ACTION_TO_SLAVE: begin
+                    input_aud_bram_valid_out <= 1'b1;
+                    if (fft_data_counter == 0) begin
+                        input_aud_bram_last_out <= 1'b1;
+                        input_aud_bram_state <= DONE;
+                    end else begin 
+                        input_aud_bram_state <= WAITING_FOR_SLAVE;
+                    end
+                end
+                WAITING_FOR_SLAVE: begin
+                    if (fft_ready == 1'b1) begin
+                        input_aud_bram_valid_out <= 1'b0;
+                        input_aud_bram_last_out <= 1'b0;
+                        if (fft_data_counter == NFFT_WINDOW_SIZE-1) begin 
+                            input_aud_bram_read_addr <= input_aud_bram_read_addr + INPUT_WINDOW_SIZE - 1;
+                            fft_data_counter <={ADDRESS_BIT_WIDTH{1'b0}}; 
+                        end else begin  
+                            input_aud_bram_read_addr <= input_aud_bram_read_addr + 1'b1;
+                            fft_data_counter <= fft_data_counter + 'b1;   
+                        end
+                        input_aud_bram_state <= ACTION_TO_SLAVE;
+                    end else begin
+                        input_aud_bram_state <= WAITING_FOR_SLAVE;
+                    end  
+                end
+                DONE: begin
+                    input_aud_bram_state <= DONE;
+                    input_aud_bram_last_out <= 1'b0;
+                    input_aud_bram_valid_out <= 1'b0;
+                end
+                default: input_aud_bram_state <= READ_WAIT_INIT_1;
+            endcase
+        end
+        
+        if (fft_out_last && fft_out_valid) begin
+            fwd_fft_bram_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
+            fwd_fft_bram_state <= READ_WAIT_INIT_1;
+            fwd_fft_bram_last_out <= 1'b0;
+            fwd_fft_bram_valid_out <= 1'b0;
+        end else begin
+            case (fwd_fft_bram_state) 
+                READ_WAIT_INIT_1: begin
+                    fwd_fft_bram_state <= READ_WAIT_INIT_2;
+                end
+                READ_WAIT_INIT_2: begin
+                    fwd_fft_bram_state <= ACTION_TO_SLAVE;
+                    fwd_fft_bram_read_addr <= fwd_fft_bram_read_addr + 'b1;
+                end
+                ACTION_TO_SLAVE: begin
+                    fwd_fft_bram_valid_out <= 1'b1;
+                    if (fwd_fft_bram_read_addr == 0) begin
+                        fwd_fft_bram_last_out <= 1'b1;
+                        fwd_fft_bram_state <= DONE;
+                    end else begin 
+                        fwd_fft_bram_state <= WAITING_FOR_SLAVE;
+                    end
+                end
+                WAITING_FOR_SLAVE: begin
+                    fwd_fft_bram_valid_out <= 1'b0;
+                    fwd_fft_bram_last_out <= 1'b0;
+                    if (fwd_fft_bram_read_addr == NFFT_WINDOW_SIZE-1) begin 
+                        fwd_fft_bram_read_addr <={ADDRESS_BIT_WIDTH{1'b0}}; 
+                    end else begin  
+                        fwd_fft_bram_read_addr <= fwd_fft_bram_read_addr + 'b1;   
+                    end
+                    fwd_fft_bram_state <= ACTION_TO_SLAVE;  
+                end
+                DONE: begin
+                    fwd_fft_bram_state <= DONE;
+                    fwd_fft_bram_last_out <= 1'b0;
+                    fwd_fft_bram_valid_out <= 1'b0;
+                end
+                default: fwd_fft_bram_state <= READ_WAIT_INIT_1;
+            endcase
+        end
+        
+        if (fwd_fft_bram_last_out && fwd_fft_bram_valid_out) begin
+            copy1_bram_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
+            copy1_bram_state <= READ_WAIT_INIT_1;
+            copy1_bram_last_out <= 1'b0;
+            copy1_bram_valid_out <= 1'b0;
+        end else begin
+            case (copy1_bram_state) 
+                READ_WAIT_INIT_1: begin
+                    copy1_bram_state <= READ_WAIT_INIT_2;
+                end
+                READ_WAIT_INIT_2: begin
+                    copy1_bram_state <= ACTION_TO_SLAVE;
+                    copy1_bram_read_addr <= copy1_bram_read_addr + 'b1;
+                end
+                ACTION_TO_SLAVE: begin
+                    copy1_bram_valid_out <= 1'b1;
+                    if (copy1_bram_read_addr == 0) begin
+                        copy1_bram_last_out <= 1'b1;
+                        copy1_bram_state <= DONE;
+                    end else begin 
+                        copy1_bram_state <= WAITING_FOR_SLAVE;
+                    end
+                end
+                WAITING_FOR_SLAVE: begin
+                    copy1_bram_valid_out <= 1'b0;
+                    copy1_bram_last_out <= 1'b0;
+                    if (copy1_bram_read_addr == NFFT_WINDOW_SIZE-1) begin 
+                        copy1_bram_read_addr <={ADDRESS_BIT_WIDTH{1'b0}}; 
+                    end else begin  
+                        copy1_bram_read_addr <= copy1_bram_read_addr + 'b1;   
+                    end
+                    copy1_bram_state <= ACTION_TO_SLAVE;
+                end
+                DONE: begin
+                    copy1_bram_state <= DONE;
+                    copy1_bram_last_out <= 1'b0;
+                    copy1_bram_valid_out <= 1'b0;
+                end
+                default: copy1_bram_state <= READ_WAIT_INIT_1;
+            endcase
+        end
+        
+        if (copy1_bram_last_out && copy1_bram_valid_out) begin
+            copy2_bram_read_addr <= {ADDRESS_BIT_WIDTH{1'b0}};
+            copy2_bram_state <= READ_WAIT_INIT_1;
+            copy2_bram_last_out <= 1'b0;
+            copy2_bram_valid_out <= 1'b0;
+        end else begin
+            case (copy2_bram_state) 
+                READ_WAIT_INIT_1: begin
+                    copy2_bram_state <= READ_WAIT_INIT_2;
+                end
+                READ_WAIT_INIT_2: begin
+                    copy2_bram_state <= ACTION_TO_SLAVE;
+                    copy2_bram_read_addr <= copy2_bram_read_addr + 'b1;
+                end
+                ACTION_TO_SLAVE: begin
+                    copy2_bram_valid_out <= 1'b1;
+                    if (copy2_bram_read_addr == 0) begin
+                        copy2_bram_last_out <= 1'b1;
+                        copy2_bram_state <= DONE;
+                    end else begin 
+                        copy2_bram_state <= WAITING_FOR_SLAVE;
+                    end
+                end
+                WAITING_FOR_SLAVE: begin
+                    if (inv_fft_ready == 1'b1) begin
+                        copy2_bram_valid_out <= 1'b0;
+                        copy2_bram_last_out <= 1'b0;
+                        if (copy2_bram_read_addr == NFFT_WINDOW_SIZE-1) begin 
+                            copy2_bram_read_addr <={ADDRESS_BIT_WIDTH{1'b0}}; 
+                        end else begin  
+                            copy2_bram_read_addr <= copy2_bram_read_addr + 'b1;   
+                        end
+                        copy2_bram_state <= ACTION_TO_SLAVE;
+                    end else begin
+                        copy2_bram_state <= WAITING_FOR_SLAVE;
+                    end  
+                end
+                DONE: begin
+                    copy2_bram_state <= DONE;
+                    copy2_bram_last_out <= 1'b0;
+                    copy2_bram_valid_out <= 1'b0;
+                end
+                default: copy2_bram_state <= READ_WAIT_INIT_1;
+            endcase
+        end
+    end
 
     xadc_wiz_0 my_adc ( .dclk_in(clk_100mhz), .daddr_in(8'h13), //read from 0x13 for a
                         .vauxn3(vauxn3),.vauxp3(vauxp3),
@@ -371,8 +503,9 @@ module top_level_2(   input clk_100mhz,
     recorder myrec( .clk_in(clk_100mhz),.rst_in(btnd),
                     .ready_in(sample_trigger),.filter_in(sw[11]),
                     .mic_in(scaled_signed_adc_data),
-                    .write_addr(write_addr1),
-                    .window_finish(recent_window_finish),
+                    .write_addr(input_aud_bram_write_addr),
+                    .recorder_last(recorder_last_out),
+                    .recorder_valid(recorder_valid_out),
                     .data_out(recorder_data)); 
                     
     hann_rom hann_coeff_rom (   .clka(clk_100mhz),    // input wire clka
@@ -392,9 +525,9 @@ module top_level_2(   input clk_100mhz,
     //MAKE SURE TO SET NATURAL ORDER FOR OUTPUT ORDERING
     //Input Data Width, Phase Factor Width: Both 16 bits
     //Result uses 12 DSP48 Slices and 6 Block RAMs (under Impl Details)
-    xfft_0 fwd_fft (.aclk(clk_100mhz), .s_axis_data_tdata(fft_data), 
-                    .s_axis_data_tvalid(fft_valid),
-                    .s_axis_data_tlast(fft_last), .s_axis_data_tready(fft_ready),
+    xfft_0 fwd_fft (.aclk(clk_100mhz), .s_axis_data_tdata(sw[10] ? {1'b0,hann_data_product[11+BIT_DEPTH-1:11+1]} : data_from_input_aud_bram), 
+                    .s_axis_data_tvalid(input_aud_bram_valid_out),
+                    .s_axis_data_tlast(input_aud_bram_last_out), .s_axis_data_tready(fft_ready),
                     .s_axis_config_tdata(0), 
                      .s_axis_config_tvalid(0),
                      .s_axis_config_tready(),
@@ -459,10 +592,10 @@ module top_level_2(   input clk_100mhz,
                      .s_axis_cartesian_tvalid(fifo_valid), .s_axis_cartesian_tlast(fifo_last),
                      .s_axis_cartesian_tready(fifo_ready),.m_axis_dout_tdata(sqrt_data),
                      .m_axis_dout_tvalid(sqrt_valid), .m_axis_dout_tlast(sqrt_last));
-                 
-    xfft_0 inv_fft (.aclk(clk_100mhz), .s_axis_data_tdata(inv_fft_data), 
-                    .s_axis_data_tvalid(inv_fft_valid),
-                    .s_axis_data_tlast(inv_fft_last), .s_axis_data_tready(inv_fft_ready),
+                    
+    xfft_0 inv_fft (.aclk(clk_100mhz), .s_axis_data_tdata(data_from_copy2_bram), 
+                    .s_axis_data_tvalid(copy2_bram_valid_out),
+                    .s_axis_data_tlast(copy2_bram_last_out), .s_axis_data_tready(inv_fft_ready),
                     .s_axis_config_tdata(0), 
                     .s_axis_config_tvalid(1),
                     .s_axis_config_tready(),
@@ -471,8 +604,7 @@ module top_level_2(   input clk_100mhz,
              
     playback player(    .clk_in(clk_100mhz), .rst_in(btnd),
                         .ready_in(sample_trigger),.filter_in(sw[12]),
-                        .read_addr(read_addr4),
-                        //.input_data(data_from_input_aud_bram[BIT_DEPTH-1:0]), //inv_fft_out_data[BIT_DEPTH-1:0]), 
+                        .read_addr(inv_fft_bram_read_addr), 
                         .input_data(data_from_inv_fft_bram[BIT_DEPTH-1:0]),
                         .playback_start(playback_start),
                         .data_out(playback_data));  
@@ -603,8 +735,8 @@ module top_level_2(   input clk_100mhz,
                             .m00_axis_tdata(m_data),
                             .m00_axis_tready());
                             
-    typedef enum {READ_WAIT, ACTION_TO_SLAVE, WAITING_FOR_SLAVE} State;
-    State mem_state;
+    /*
+    Memstate mem_state;
     logic [9:0] nat_freq;
     
     always_ff @(posedge pixel_clk) begin
@@ -652,7 +784,7 @@ module top_level_2(   input clk_100mhz,
                 nat_freq <= m_data;
             end
         end
-    end  
+    end  */
     
 endmodule
 
