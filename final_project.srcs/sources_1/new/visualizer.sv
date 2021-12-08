@@ -80,7 +80,7 @@ module visualizer#
             // draw the spectrogram
             // access the correct memory location in bram for the frequency
             spectrogram_draw_addr <= (hcount >> 1) * (SPECTROGRAM_TIME_RANGE) - ((vcount - (MAX_VCOUNT - SPECTROGRAM_HEIGHT)) >> 1);
-            if (vcount == nat_freq + 10'd2 && spectrogram_raw_amp_out << amp_scale > SPECTROGRAM_AMP_SCALE << 3) begin // 2 clock cycles delay between updating address and getting amp_out
+            if (((vcount - (MAX_VCOUNT - SPECTROGRAM_HEIGHT)) >> 1) == nat_freq + 10'd2 && spectrogram_raw_amp_out << amp_scale > SPECTROGRAM_AMP_SCALE << 2) begin // 2 clock cycles delay between updating address and getting amp_out
                 rgb <= 12'hFFF;
             end if (hcount < SPECTROGRAM_WIDTH && vcount > MAX_VCOUNT - SPECTROGRAM_HEIGHT && vcount < MAX_VCOUNT) begin
                 rgb <= spectrogram_color;
