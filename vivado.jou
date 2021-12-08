@@ -1,0 +1,35 @@
+#-----------------------------------------------------------
+# Vivado v2019.2 (64-bit)
+# SW Build 2708876 on Wed Nov  6 21:40:23 MST 2019
+# IP Build 2700528 on Thu Nov  7 00:09:20 MST 2019
+# Start of session at: Tue Dec  7 19:35:16 2021
+# Process ID: 9520
+# Current directory: C:/Users/Michael/Dropbox (MIT)/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/final_project
+# Command line: vivado.exe -gui_launcher_event rodinguilauncherevent1768 C:\Users\Michael\Dropbox (MIT)\College\Junior Year\6.111 - Digital Systems Laboratory\6.111 - Final Project\integrated_final_project\final_project\final_project.xpr
+# Log file: C:/Users/Michael/Dropbox (MIT)/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/final_project/vivado.log
+# Journal file: C:/Users/Michael/Dropbox (MIT)/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/final_project\vivado.jou
+#-----------------------------------------------------------
+start_gui
+open_project {C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/final_project/final_project.xpr}
+update_compile_order -fileset sources_1
+add_files -norecurse {{C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/final_project/final_project.srcs/sources_1/new/top_level.sv}}
+update_compile_order -fileset sources_1
+file mkdir C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/Documents/Lab 5
+file mkdir C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/Documents/Lab 5
+file mkdir C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/Documents/Lab 5
+file mkdir C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/Documents/Lab 5
+file mkdir C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/Documents/Lab 5
+file mkdir C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/Documents/Lab 5
+file mkdir C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/Documents/Lab 5
+import_files -fileset constrs_1 {{C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/Documents/Lab 5/nexys4ddr_audio.xdc}}
+close [ open {C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/final_project/final_project.srcs/sources_1/new/freq_shift.sv} w ]
+add_files {{C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/final_project/final_project.srcs/sources_1/new/freq_shift.sv}}
+update_compile_order -fileset sources_1
+update_compile_order -fileset sources_1
+reset_run synth_1
+reset_run hann_rom_synth_1
+launch_runs impl_1 -to_step write_bitstream -jobs 4
+launch_runs impl_1 -to_step write_bitstream -jobs 4
+generate_target all [get_files  {{C:/Users/Michael/Dropbox/College/Junior Year/6.111 - Digital Systems Laboratory/6.111 - Final Project/integrated_final_project/final_project/final_project.srcs/sources_1/ip/hann_rom/hann_rom.xci}}]
+launch_runs impl_1 -to_step write_bitstream -jobs 4
+launch_runs impl_1 -to_step write_bitstream -jobs 4

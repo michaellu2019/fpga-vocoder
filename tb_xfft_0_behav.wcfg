@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="fft_test_tb_behav.wdb" id="1">
+         <top_modules>
+            <top_module name="fft_test_tb" />
+            <top_module name="glbl" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <zoom_setting>
+      <ZoomStartTime time="0fs"></ZoomStartTime>
+      <ZoomEndTime time="250000001fs"></ZoomEndTime>
+      <Cursor1Time time="2211855000fs"></Cursor1Time>
+   </zoom_setting>
+   <column_width_setting>
+      <NameColumnWidth column_width="251"></NameColumnWidth>
+      <ValueColumnWidth column_width="154"></ValueColumnWidth>
+   </column_width_setting>
+   <WVObjectSize size="22" />
+   <wvobject fp_name="/fft_test_tb/clk" type="logic">
+      <obj_property name="ElementShortName">clk</obj_property>
+      <obj_property name="ObjectShortName">clk</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/reset" type="logic">
+      <obj_property name="ElementShortName">reset</obj_property>
+      <obj_property name="ObjectShortName">reset</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/ready" type="logic">
+      <obj_property name="ElementShortName">ready</obj_property>
+      <obj_property name="ObjectShortName">ready</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/x" type="array">
+      <obj_property name="ElementShortName">x[15:0]</obj_property>
+      <obj_property name="ObjectShortName">x[15:0]</obj_property>
+      <obj_property name="WaveformStyle">STYLE_ANALOG</obj_property>
+      <obj_property name="CellHeight">100</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+      <obj_property name="AnalogYRangeType">ANALOG_YRANGETYPE_FIXED</obj_property>
+      <obj_property name="AnalogYRangeMin">-125.000000</obj_property>
+      <obj_property name="AnalogYRRangeMax">125.000000</obj_property>
+      <obj_property name="AnalogInterpolation">ANALOG_INTERPOLATION_LINEAR</obj_property>
+      <obj_property name="AnalogOffscale">ANALOG_OFFSCALE_HIDE</obj_property>
+      <obj_property name="AnalogHorizLine">0.000000</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/y" type="array">
+      <obj_property name="ElementShortName">y[15:0]</obj_property>
+      <obj_property name="ObjectShortName">y[15:0]</obj_property>
+      <obj_property name="WaveformStyle">STYLE_ANALOG</obj_property>
+      <obj_property name="CellHeight">100</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+      <obj_property name="AnalogYRangeType">ANALOG_YRANGETYPE_FIXED</obj_property>
+      <obj_property name="AnalogYRangeMin">-125.000000</obj_property>
+      <obj_property name="AnalogYRRangeMax">125.000000</obj_property>
+      <obj_property name="AnalogInterpolation">ANALOG_INTERPOLATION_LINEAR</obj_property>
+      <obj_property name="AnalogOffscale">ANALOG_OFFSCALE_HIDE</obj_property>
+      <obj_property name="AnalogHorizLine">0.000000</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/window_finish" type="logic">
+      <obj_property name="ElementShortName">window_finish</obj_property>
+      <obj_property name="ObjectShortName">window_finish</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/z" type="array">
+      <obj_property name="ElementShortName">z[15:0]</obj_property>
+      <obj_property name="ObjectShortName">z[15:0]</obj_property>
+      <obj_property name="WaveformStyle">STYLE_ANALOG</obj_property>
+      <obj_property name="CellHeight">100</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/data_from_input_aud_bram" type="array">
+      <obj_property name="ElementShortName">data_from_input_aud_bram[15:0]</obj_property>
+      <obj_property name="ObjectShortName">data_from_input_aud_bram[15:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/write_addr1" type="array">
+      <obj_property name="ElementShortName">write_addr1[5:0]</obj_property>
+      <obj_property name="ObjectShortName">write_addr1[5:0]</obj_property>
+      <obj_property name="WaveformStyle">STYLE_ANALOG</obj_property>
+      <obj_property name="CellHeight">100</obj_property>
+      <obj_property name="AnalogYRangeType">ANALOG_YRANGETYPE_FIXED</obj_property>
+      <obj_property name="AnalogYRangeMin">0.000000</obj_property>
+      <obj_property name="AnalogYRRangeMax">64.000000</obj_property>
+      <obj_property name="AnalogInterpolation">ANALOG_INTERPOLATION_LINEAR</obj_property>
+      <obj_property name="AnalogOffscale">ANALOG_OFFSCALE_HIDE</obj_property>
+      <obj_property name="AnalogHorizLine">0.000000</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/read_addr1" type="array">
+      <obj_property name="ElementShortName">read_addr1[5:0]</obj_property>
+      <obj_property name="ObjectShortName">read_addr1[5:0]</obj_property>
+      <obj_property name="WaveformStyle">STYLE_ANALOG</obj_property>
+      <obj_property name="CellHeight">100</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/clk_in" type="logic">
+      <obj_property name="ElementShortName">clk_in</obj_property>
+      <obj_property name="ObjectShortName">clk_in</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/rst_in" type="logic">
+      <obj_property name="ElementShortName">rst_in</obj_property>
+      <obj_property name="ObjectShortName">rst_in</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/ready_in" type="logic">
+      <obj_property name="ElementShortName">ready_in</obj_property>
+      <obj_property name="ObjectShortName">ready_in</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/filter_in" type="logic">
+      <obj_property name="ElementShortName">filter_in</obj_property>
+      <obj_property name="ObjectShortName">filter_in</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/read_addr" type="array">
+      <obj_property name="ElementShortName">read_addr[5:0]</obj_property>
+      <obj_property name="ObjectShortName">read_addr[5:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/input_data" type="array">
+      <obj_property name="ElementShortName">input_data[15:0]</obj_property>
+      <obj_property name="ObjectShortName">input_data[15:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/playback_start" type="logic">
+      <obj_property name="ElementShortName">playback_start</obj_property>
+      <obj_property name="ObjectShortName">playback_start</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/data_out" type="array">
+      <obj_property name="ElementShortName">data_out[15:0]</obj_property>
+      <obj_property name="ObjectShortName">data_out[15:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/aud_out_filter_input" type="array">
+      <obj_property name="ElementShortName">aud_out_filter_input[15:0]</obj_property>
+      <obj_property name="ObjectShortName">aud_out_filter_input[15:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/aud_out_filter_output" type="array">
+      <obj_property name="ElementShortName">aud_out_filter_output[25:0]</obj_property>
+      <obj_property name="ObjectShortName">aud_out_filter_output[25:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/count" type="array">
+      <obj_property name="ElementShortName">count[2:0]</obj_property>
+      <obj_property name="ObjectShortName">count[2:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/fft_test_tb/player/processing" type="logic">
+      <obj_property name="ElementShortName">processing</obj_property>
+      <obj_property name="ObjectShortName">processing</obj_property>
+   </wvobject>
+</wave_config>
