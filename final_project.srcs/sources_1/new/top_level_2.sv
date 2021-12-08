@@ -576,7 +576,7 @@ module top_level_2(   input clk_100mhz,
                      .s_axis_config_tvalid(0),
                      .s_axis_config_tready(),
                     .m_axis_data_tdata(fft_out_data), .m_axis_data_tvalid(fft_out_valid),
-                    .m_axis_data_tlast(fft_out_last), .m_axis_data_tready(fft_out_ready));
+                    .m_axis_data_tlast(fft_out_last), .m_axis_data_tready(1'b1));
                    
     freq_detection_fft fwd_fft2 (.aclk(clk_100mhz), .s_axis_data_tdata(data_from_input_aud_bram1), 
                     .s_axis_data_tvalid(input_aud_bram1_valid_out),
@@ -589,10 +589,10 @@ module top_level_2(   input clk_100mhz,
                     
     logic [ADDRESS_BIT_WIDTH*2-1:0] coeff_increase;
     logic [ADDRESS_BIT_WIDTH*2-1:0] coeff_decrease;
-    assign coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
-    assign coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/2; //NFFT_WINDOW_SIZE/4;
-    assign coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd2;
-    assign coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.0;// NFFT_WINDOW_SIZE*0.8;
+    assign coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd2;
+    assign coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.0; //NFFT_WINDOW_SIZE/4;
+    assign coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
+    assign coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/2;// NFFT_WINDOW_SIZE*0.8;
     
     logic write_en, shift_done;
     
@@ -608,7 +608,8 @@ module top_level_2(   input clk_100mhz,
     logic fft_bram_ready_in;
     logic [2*BIT_DEPTH-1:0] data_to_copy2_bram;
     logic [2*BIT_DEPTH-1:0] fft_bram_data_out;
-    logic [ADDRESS_BIT_WIDTH-1:0] copy2_bram_write_addr, fft_bram_addr_out;
+    logic [ADDRESS_BIT_WIDTH-1:0] copy2_bram_write_addr;
+    logic [ADDRESS_BIT_WIDTH-1:0] fft_bram_addr_out;
     
     assign data_to_copy2_bram = data_to_copy1_bram;
     assign copy2_bram_write_addr = copy1_bram_write_addr;
@@ -633,12 +634,18 @@ module top_level_2(   input clk_100mhz,
     always_ff @(posedge clk_100mhz) begin
         if (shift_done) begin
             fft_bram_addr_out <= {ADDRESS_BIT_WIDTH{1'b0}};
+//            fft_bram_addr_out <= 'd500;
             sqsum_mem_state <= READ_WAIT_INIT_1;
             sqsum_data_in <= {FFT_SAMPLE_SIZE{1'b0}};
             fft_bram_last_out <= 1'b0;
             fft_bram_valid_out <= 1'b0;
             fft_bram_ready_in <= 1'b0;
         end else begin
+//            fft_bram_last_out <= 1'b1;
+//            fft_bram_valid_out <= 1'b1;
+//            fft_bram_ready_in <= 1'b1;
+//            sqsum_data_in <= fft_bram_addr_out;
+//            fft_bram_addr_out <= fft_bram_addr_out + 'b1;
             case (sqsum_mem_state) 
             
                 READ_WAIT_INIT_1: begin
@@ -699,6 +706,7 @@ module top_level_2(   input clk_100mhz,
                             .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_valid),
                             .m00_axis_tdata(sqsum_data),.m00_axis_tlast(sqsum_last),
                             .m00_axis_tready(sqsum_ready));
+                            
 //    square_and_sum_v1_0 sq_shifted(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
 //                            .s00_axis_tready(sqsum_ready_in),
 //                            .s00_axis_tdata(fft_out_data),.s00_axis_tlast(fft_out_last),
@@ -713,6 +721,14 @@ module top_level_2(   input clk_100mhz,
                             .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_shifted_valid),
                             .m00_axis_tdata(sqsum_shifted_data),.m00_axis_tlast(sqsum_shifted_last),
                             .m00_axis_tready(sqsum_shifted_ready));
+
+//    square_and_sum_v1_0 sq_shifted(.s00_axis_aclk(clk_100mhz), .s00_axis_aresetn(1'b1),
+//                            .s00_axis_tready(sqsum_ready_in),
+//                            .s00_axis_tdata(data_to_copy1_bram),.s00_axis_tlast(shift_done),
+//                            .s00_axis_tvalid(write_en),.m00_axis_aclk(clk_100mhz),
+//                            .m00_axis_aresetn(1'b1),. m00_axis_tvalid(sqsum_shifted_valid),
+//                            .m00_axis_tdata(sqsum_shifted_data),.m00_axis_tlast(sqsum_shifted_last),
+//                            .m00_axis_tready(sqsum_shifted_ready));
     
     //Didn't really need this fifo but put it in for because I felt like it and for practice:
     //This is an AXI4-Stream Data FIFO
@@ -755,7 +771,7 @@ module top_level_2(   input clk_100mhz,
                      .s_axis_cartesian_tvalid(fifo_valid), .s_axis_cartesian_tlast(fifo_last),
                      .s_axis_cartesian_tready(fifo_ready),.m_axis_dout_tdata(sqrt_data),
                      .m_axis_dout_tvalid(sqrt_valid), .m_axis_dout_tlast(sqrt_last));
-    cordic_0 sqrt_shifted (.aclk(clk_100mhz), .s_axis_cartesian_tdata(fifo_data),
+    cordic_0 sqrt_shifted (.aclk(clk_100mhz), .s_axis_cartesian_tdata(fifo_shifted_data),
                      .s_axis_cartesian_tvalid(fifo_shifted_valid), .s_axis_cartesian_tlast(fifo_shifted_last),
                      .s_axis_cartesian_tready(fifo_shifted_ready),.m_axis_dout_tdata(sqrt_shifted_data),
                      .m_axis_dout_tvalid(sqrt_shifted_valid), .m_axis_dout_tlast(sqrt_shifted_last));
