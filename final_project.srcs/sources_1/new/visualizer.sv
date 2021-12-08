@@ -72,11 +72,7 @@ module visualizer#
                  end
             end else if (vcount >= MAX_VCOUNT/2 && (shifted_amp_out >> amp_scale) >= MAX_VCOUNT - vcount) begin
                 // draw bottom red bar graph of shifted frequencies
-                if (draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
-                    rgb <= 12'hFFF;
-                end else begin
-                    rgb <= shifted_freq_color;
-                 end
+                rgb <= shifted_freq_color;
             end else begin
                 rgb <= 12'b0000_0000_0000;
             end
