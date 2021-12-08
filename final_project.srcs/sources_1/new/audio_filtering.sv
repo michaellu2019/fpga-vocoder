@@ -4,25 +4,24 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-module recorder(
-  input wire clk_in,              // 100MHz system clock
-  input wire rst_in,               // 1 to reset to initial state
-  input wire ready_in,             // 1 when data is available
-  input wire filter_in,            // 1 when using low-pass filter for audio input
-  input wire signed[BIT_DEPTH-1:0] mic_in,         // PCM data from mic
-  output logic [ADDRESS_BIT_WIDTH-1:0] write_addr,
-  output logic recorder_last,
-  output logic recorder_valid,
-  output logic [BIT_DEPTH-1:0] data_out
-);                               
-
-    parameter WINDOW_SIZE = 512;
-    parameter WINDOW_COUNT = 4;
-    parameter MAX_ADDR = 2048;
-    parameter BIT_DEPTH = 16;
-    parameter ADDRESS_BIT_WIDTH = 11; 
-    parameter COUNT = 3'd6; // downsampling coefficient         
-                  
+module recorder#(
+    parameter integer WINDOW_SIZE = 512,
+    parameter integer WINDOW_COUNT = 4,
+    parameter integer MAX_ADDR = 2048,
+    parameter integer BIT_DEPTH = 16,
+    parameter integer ADDRESS_BIT_WIDTH = 11,
+    parameter integer COUNT = 3'd6 // downsampling coefficient  
+)(
+    input wire clk_in,              // 100MHz system clock
+    input wire rst_in,               // 1 to reset to initial state
+    input wire ready_in,             // 1 when data is available
+    input wire filter_in,            // 1 when using low-pass filter for audio input
+    input wire signed[BIT_DEPTH-1:0] mic_in,         // PCM data from mic
+    output logic [ADDRESS_BIT_WIDTH-1:0] write_addr,
+    output logic recorder_last,
+    output logic recorder_valid,
+    output logic [BIT_DEPTH-1:0] data_out
+);                                    
     logic signed [BIT_DEPTH-1:0] aud_in_filter_input;
     logic signed [BIT_DEPTH-1+10:0] aud_in_filter_output;
     fir31 input_low_pass_filter(  .clk_in(clk_in), .rst_in(rst_in), .ready_in(ready_in),
@@ -31,11 +30,7 @@ module recorder(
     logic [2:0] count; // used to downsample from 48kHz to 8kHz 
     logic [8:0] sample_counter;      
     
-    always_ff @(posedge clk_in)begin
-        // Testing audio and microphone
-        //data_out = filter_in?tone_440:tone_750; //send tone immediately to output
-        //data_out = mic_in; //send microphone input immediately to output
-        
+    always_ff @(posedge clk_in) begin
         if (rst_in) begin
             count <= 0;
             sample_counter <= 0;
@@ -56,24 +51,24 @@ module recorder(
     end                        
 endmodule
 
-module playback(
-  input wire clk_in,              // 100MHz system clock
-  input wire rst_in,               // 1 to reset to initial state
-  input wire ready_in,             // 1 when data is available
-  input wire filter_in,           // 1 when using low-pass filter for audio output
-  output logic [ADDRESS_BIT_WIDTH-1:0] read_addr,
-  input wire signed[BIT_DEPTH-1:0] input_data,         // PCM data from mic
-  input wire playback_start,
-  output logic signed [BIT_DEPTH-1:0] data_out      // PCM data to headphone
+module playback#(
+    parameter integer WINDOW_SIZE = 512,
+    parameter integer WINDOW_COUNT = 4,
+    parameter integer MAX_ADDR = 2048,
+    parameter integer BIT_DEPTH = 16,
+    parameter integer ADDRESS_BIT_WIDTH = 11,
+    parameter integer COUNT = 3'd6 // downsampling coefficient
+)(
+    input wire clk_in,              // 100MHz system clock
+    input wire rst_in,               // 1 to reset to initial state
+    input wire ready_in,             // 1 when data is available
+    input wire filter_in,           // 1 when using low-pass filter for audio output
+    output logic [ADDRESS_BIT_WIDTH-1:0] read_addr,
+    input wire signed[BIT_DEPTH-1:0] input_data,         // PCM data from mic
+    input wire playback_start,
+    output logic signed [BIT_DEPTH-1:0] data_out      // PCM data to headphone
 );                         
-
-    parameter WINDOW_SIZE = 512;
-    parameter WINDOW_COUNT = 4;
-    parameter MAX_ADDR = 2048;
-    parameter BIT_DEPTH = 16; 
-    parameter ADDRESS_BIT_WIDTH = 11;
-    parameter COUNT = 3'd6; // downsampling coefficient
-    parameter start_address = MAX_ADDR - WINDOW_SIZE;
+    localparam start_address = MAX_ADDR - WINDOW_SIZE;
                   
     logic signed [BIT_DEPTH-1:0] aud_out_filter_input;
     logic signed [BIT_DEPTH-1+10:0] aud_out_filter_output;
@@ -115,13 +110,13 @@ endmodule
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-module fir31(
+module fir31#(
+    parameter integer BIT_DEPTH = 16
+)(
   input  wire clk_in,rst_in,ready_in,
   input wire signed [BIT_DEPTH-1:0] x_in,
   output logic signed [BIT_DEPTH-1+10:0] y_out
 );
-    parameter BIT_DEPTH = 16;  
-
     logic signed [BIT_DEPTH-1:0] sample [31:0]; // 32 element array each 8 bits wide
     logic [4:0] offset; // pointer for the array! (5 bits because 32 elements in above array!) 
     logic [4:0] index, sample_index;
@@ -133,7 +128,6 @@ module fir31(
     coeffs31 coeff(.index_in(index),.coeff_out(coeff_out));
 
     always_ff @(posedge clk_in) begin
-        // if (ready_in) y_out <= {x_in,10'd0};  // for now just pass data through
         if (rst_in) begin
             sample[0] <= 0;
             sample[1] <= 0;
@@ -186,9 +180,6 @@ module fir31(
         end
     end
 endmodule
-
-
-
 
 
 ///////////////////////////////////////////////////////////////////////////////

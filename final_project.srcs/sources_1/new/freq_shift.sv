@@ -93,7 +93,8 @@ module freq_shift #
             coeff_increase_reg <= coeff_increase_in;
             coeff_decrease_reg <= coeff_decrease_in;
             // if integer part of coeff_increase_in is larger than 1 
-            if (coeff_increase_in[COEFF_SIZE-1: COEFF_DECIMAL_SIZE] > {{(COEFF_INTEGER_SIZE-1){1'b0}}, 1'b1}) begin
+            if ((coeff_increase_in[COEFF_SIZE-1: COEFF_DECIMAL_SIZE] == 'd1 && coeff_increase_in[COEFF_DECIMAL_SIZE-1:0] > 0) || 
+                (coeff_increase_in[COEFF_SIZE-1: COEFF_DECIMAL_SIZE] > 'd1 && coeff_increase_in[COEFF_DECIMAL_SIZE-1:0] == 0)) begin
                 func_state <= INCREASE;
                 incr_state <= INCR_INIT_WAIT_1;
                 read_addr_out <= {ADDRESS_SIZE{1'b0}};
