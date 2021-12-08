@@ -586,7 +586,6 @@ module top_level_2(   input clk_100mhz,
     /* Frequency Shifting */
     logic [ADDRESS_BIT_WIDTH*2-1:0] coeff_increase;
     logic [ADDRESS_BIT_WIDTH*2-1:0] coeff_decrease;
-
     always_comb begin
         case(sw[9:6]) 
             'd0: begin
@@ -654,7 +653,6 @@ module top_level_2(   input clk_100mhz,
             end
         endcase
     end
-
     logic write_en, shift_done;
        
     freq_shift #(.FFT_WINDOW_SIZE(FFT_DEPTH), .FFT_SAMPLE_SIZE(2*FFT_REAL_BIT_WIDTH)) 
