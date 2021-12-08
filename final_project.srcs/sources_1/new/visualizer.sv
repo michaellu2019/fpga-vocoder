@@ -8,7 +8,9 @@
 
 module visualizer#
     (
-        parameter integer ADDRESS_BIT_WIDTH
+        parameter integer ADDRESS_BIT_WIDTH,
+        parameter integer SPECTROGRAM_TIME_RANGE,
+        parameter integer SPECTROGRAM_FREQUENCY_RANGE
     )(
     input wire clk_in,
     input wire rst_in,
@@ -43,7 +45,7 @@ module visualizer#
     logic [11:0] spectrogram_color;
     
     parameter SPECTROGRAM_WIDTH = MAX_HCOUNT;
-    parameter SPECTROGRAM_HEIGHT = 512;
+    parameter SPECTROGRAM_HEIGHT = SPECTROGRAM_FREQUENCY_RANGE;
     parameter SPECTROGRAM_AMP_SCALE = 10;
     
     color_picker raw_freq_color_picker(.amp_in(raw_amp_out >> amp_scale), 
@@ -81,13 +83,13 @@ module visualizer#
         end else if (visualize_mode == 'd1) begin 
             // draw the spectrogram
             // access the correct memory location in bram for the frequency
-            spectrogram_draw_addr <= (hcount >> 3) * (SPECTROGRAM_WIDTH + 2) - (vcount);
+            spectrogram_draw_addr <= (hcount >> 1) * (SPECTROGRAM_TIME_RANGE) - ((vcount - (MAX_VCOUNT - SPECTROGRAM_HEIGHT)) >> 1);
             if (vcount == nat_freq + 10'd2 && spectrogram_raw_amp_out << amp_scale > SPECTROGRAM_AMP_SCALE << 3) begin // 2 clock cycles delay between updating address and getting amp_out
                 rgb <= 12'hFFF;
-            end if (hcount < SPECTROGRAM_WIDTH && vcount < SPECTROGRAM_HEIGHT) begin
+            end if (hcount < SPECTROGRAM_WIDTH && vcount > MAX_VCOUNT - SPECTROGRAM_HEIGHT && vcount < MAX_VCOUNT) begin
                 rgb <= spectrogram_color;
             end else begin
-                rgb <= 12'b1111_1111_1111;
+                rgb <= 12'b0000_0000_0000;
             end
         end else if (visualize_mode == 'd2) begin
             draw_addr <= hcount << 1;

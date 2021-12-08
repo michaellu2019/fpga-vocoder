@@ -589,13 +589,79 @@ module top_level_2(   input clk_100mhz,
                     
     logic [ADDRESS_BIT_WIDTH*2-1:0] coeff_increase;
     logic [ADDRESS_BIT_WIDTH*2-1:0] coeff_decrease;
-    assign coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd2;
-    assign coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.0; //NFFT_WINDOW_SIZE/4;
-    assign coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
-    assign coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/2;// NFFT_WINDOW_SIZE*0.8;
+//    assign coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+//    assign coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.5;
+//    assign coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
+//    assign coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/1.5;
+    always_comb begin
+        case(sw[9:6]) 
+            'd0: begin
+                // coeff_increase = 1/1.7
+                coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
+                coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/1.7;
+                coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.7;
+            end
+            
+            'd1: begin
+                // coeff_increase = 1/1.5
+                coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
+                coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/1.5;
+                coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.5;
+            end
+            
+            'd2: begin
+                // coeff_increase = 1/1.2
+                coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
+                coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/1.2;
+                coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.2;
+            end
+            
+            'd3: begin
+                // coeff_increase = 1/1
+                coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_increase[ADDRESS_BIT_WIDTH-1:0] = 0;
+                coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = 0;
+            end
+            
+            'd4: begin
+                // coeff_increase = 1.2
+                coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.2;
+                coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
+                coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/1.2;
+            end
+            
+            'd5: begin
+                // coeff_increase = 1.5
+                coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0.5;
+                coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
+                coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/1.5;
+            end
+            
+            'd6: begin
+                // coeff_increase = 2
+                coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd2;
+                coeff_increase[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE*0;
+                coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd0;
+                coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = NFFT_WINDOW_SIZE/2;
+            end
+            
+            default: begin
+                // coeff_increase = 1/1
+                coeff_increase[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_increase[ADDRESS_BIT_WIDTH-1:0] = 0;
+                coeff_decrease[ADDRESS_BIT_WIDTH*2-1:ADDRESS_BIT_WIDTH] = 'd1;
+                coeff_decrease[ADDRESS_BIT_WIDTH-1:0] = 0;
+            end
+        endcase
+    end
     
     logic write_en, shift_done;
-    
        
     freq_shift #(.FFT_WINDOW_SIZE(NFFT_WINDOW_SIZE), .FFT_SAMPLE_SIZE(2 * BIT_DEPTH)) 
         my_freq_shift(.clk_in(clk_100mhz), .reset_in(rst_in),
@@ -812,8 +878,8 @@ module top_level_2(   input clk_100mhz,
     logic [31:0] shifted_amp_out;
     logic [15:0] spectrogram_raw_amp_out;
     
-    parameter SPECTROGRAM_BRAM_WIDTH = 256;
-    parameter SPECTROGRAM_BRAM_HEIGHT = 512;
+    parameter SPECTROGRAM_TIME_RANGE = 256;
+    parameter SPECTROGRAM_FREQUENCY_RANGE = 512;
     
 //    assign spectrogram_wea = sqrt_valid && addr_count <= 'd512;
     always_ff @(posedge clk_100mhz) begin
@@ -823,13 +889,13 @@ module top_level_2(   input clk_100mhz,
             spectrogram_wea <= 0;
             spectrogram_raw_amp_in <= 0;
         end else if (!rst_in && sqrt_valid)begin
-            spectrogram_wea <= addr_count <= SPECTROGRAM_BRAM_HEIGHT;
+            spectrogram_wea <= addr_count < SPECTROGRAM_FREQUENCY_RANGE;
             if (sqrt_last) begin
                 addr_count <= 'd0; //allign
             end else begin
                 addr_count <= addr_count + 1;
                 
-                if (addr_count <= SPECTROGRAM_BRAM_HEIGHT) begin
+                if (addr_count < SPECTROGRAM_FREQUENCY_RANGE) begin
                     spectrogram_raw_amp_in <= sqrt_data[23:8];
 //                    spectrogram_raw_amp_in <= 16'd65000;
                     spectrogram_count <= spectrogram_count + 1;
@@ -887,7 +953,9 @@ module top_level_2(   input clk_100mhz,
                     .addrb(spectrogram_draw_addr), .clkb(pixel_clk), .doutb(spectrogram_raw_amp_out),
                     .web(1'b0), .enb(1'b1));
                     
-    visualizer #(.ADDRESS_BIT_WIDTH(ADDRESS_BIT_WIDTH))
+    visualizer #(.ADDRESS_BIT_WIDTH(ADDRESS_BIT_WIDTH), 
+                 .SPECTROGRAM_TIME_RANGE(SPECTROGRAM_TIME_RANGE),
+                 .SPECTROGRAM_FREQUENCY_RANGE(SPECTROGRAM_FREQUENCY_RANGE))
         viz (.clk_in(pixel_clk), .rst_in(btnd), 
                     .raw_amp_out(raw_amp_out), .shifted_amp_out(shifted_amp_out),  
                     .spectrogram_raw_amp_out(spectrogram_raw_amp_out), .nat_freq(nat_freq),
