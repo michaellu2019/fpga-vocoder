@@ -90,7 +90,7 @@ module visualizer#
         end else if (visualize_mode == 'd2) begin
             draw_addr <= hcount << 1;
             if (raw_amp_out >> amp_scale >= MAX_VCOUNT-vcount) begin
-                if (draw_addr == nat_freq + 10'd2) begin // 2 clock cycles delay between updating address and getting amp_out
+                if (draw_addr == nat_freq + 1 || draw_addr == nat_freq + 2 || draw_addr == nat_freq + 3 || draw_addr == nat_freq + 4) begin // 2 clock cycles delay between updating address and getting amp_out
                     rgb <= 12'hFFF;
                 end else begin
                     rgb <= 12'b1100_0000_0110;
